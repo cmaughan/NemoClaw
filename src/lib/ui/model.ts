@@ -18,6 +18,7 @@ export interface UiSandboxSummary {
   messagingChannels: string[];
   disabledChannels: string[];
   warnings: string[];
+  version: UiVersionSummary;
   snapshots: UiSnapshotSummary;
   commands: {
     connect: string;
@@ -73,6 +74,16 @@ export interface UiSnapshotSummary {
     timestamp: string;
     path: string;
   } | null;
+  error?: string;
+}
+
+export interface UiVersionSummary {
+  current: string | null;
+  target: string | null;
+  stale: boolean;
+  state: "current" | "stale" | "unknown" | "unmanaged";
+  detectionMethod: "registry" | "ssh-exec" | "unavailable";
+  command: string | null;
   error?: string;
 }
 

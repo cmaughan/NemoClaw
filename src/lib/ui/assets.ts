@@ -238,13 +238,16 @@ export const UI_HTML = String.raw`<!doctype html>
       padding: 8px 8px 0;
       border-bottom: 1px solid var(--line);
       background: #fbfcfb;
+      overflow-x: auto;
     }
 
     .tab {
+      flex: 0 0 auto;
       border-bottom-left-radius: 0;
       border-bottom-right-radius: 0;
       border-bottom-color: transparent;
       background: transparent;
+      white-space: nowrap;
     }
 
     .tab.active {
@@ -550,6 +553,62 @@ export const UI_HTML = String.raw`<!doctype html>
         return "unreachable";
       }
 
+      function versionLabel(value) {
+        if (!value) return "unknown";
+        return /^v/i.test(value) ? value : "v" + value;
+      }
+
+      function versionChipKind(version) {
+        if (!version) return "warn";
+        if (version.state === "current") return "good";
+        if (version.state === "stale") return "bad";
+        if (version.state === "unmanaged") return "";
+        return "warn";
+      }
+
+      function versionChipLabel(version) {
+        if (!version) return "unknown";
+        if (version.state === "current") return "current";
+        if (version.state === "stale") return "upgrade ready";
+        if (version.state === "unmanaged") return "unmanaged";
+        return "check version";
+      }
+
+      function versionDetectionLabel(version) {
+        if (!version) return "not checked";
+        if (version.detectionMethod === "registry") return "cached";
+        if (version.detectionMethod === "ssh-exec") return "live probe";
+        return "not checked";
+      }
+
+      function versionNextText(version) {
+        if (!version) return "Run doctor to inspect the sandbox version.";
+        if (version.error) return "Version metadata unavailable: " + version.error;
+        if (version.state === "stale") return "Rebuild when ready to pick up the pinned version.";
+        if (version.state === "unknown") return "Run doctor to probe and cache the sandbox version.";
+        if (version.state === "unmanaged") return "No pinned agent version is declared for this agent.";
+        return "No version rebuild needed.";
+      }
+
+      function renderVersionReadiness(sandbox) {
+        var version = sandbox.version || null;
+        var command = version && version.command ? version.command : "";
+        return [
+          '<div class="health-card">',
+          '<div class="health-head"><strong>Version Readiness</strong>' + chip(versionChipLabel(version), versionChipKind(version)) + '</div>',
+          '<div class="health-grid">',
+          '<div>Current</div><div>' + esc(versionLabel(version && version.current)) + '</div>',
+          '<div>Target</div><div>' + esc(versionLabel(version && version.target)) + '</div>',
+          '<div>Detected</div><div>' + esc(versionDetectionLabel(version)) + '</div>',
+          '<div>Next</div><div><span class="wrap-text">' + esc(versionNextText(version)) + '</span></div>',
+          '</div>',
+          command
+            ? '<div class="actions health-actions"><button data-copy="' + esc(command) + '">Copy ' + esc(version && version.state === "stale" ? "rebuild" : "doctor") + '</button></div>'
+            : "",
+          '</div>'
+        ].join("");
+      }
+
       function renderCommandOutput(sandbox) {
         var entry = commandOutputByName[sandbox.name];
         if (!entry) return "";
@@ -610,6 +669,7 @@ export const UI_HTML = String.raw`<!doctype html>
           '<div>Endpoint</div><div>' + (sandbox.dashboardUrl ? '<a href="' + esc(sandbox.dashboardUrl) + '" target="_blank" rel="noreferrer">' + esc(sandbox.dashboardUrl) + '</a>' : '<span class="muted">none</span>') + '</div>',
           '</div>',
           warnings,
+          renderVersionReadiness(sandbox),
           renderLiveHealth(sandbox),
           '<div class="actions">',
           '<button data-copy="' + esc(sandbox.commands.status) + '">Copy status command</button>',
@@ -656,6 +716,7 @@ export const UI_HTML = String.raw`<!doctype html>
 
       function renderSnapshots(sandbox) {
         var snapshots = sandbox.snapshots || { count: 0, latest: null };
+        var version = sandbox.version || null;
         var snapshotChip = snapshots.error
           ? chip("scan failed", "bad")
           : snapshots.count > 0
@@ -668,13 +729,18 @@ export const UI_HTML = String.raw`<!doctype html>
         var pathText = latest ? latest.path : "none";
         var nextText = snapshots.error
           ? "Run snapshot list to inspect local backup metadata."
-          : snapshots.count > 0
-            ? "Run preflight, then copy the rebuild command when ready."
-            : "Create a snapshot before copying the rebuild command.";
+          : version && version.state === "stale"
+            ? snapshots.count > 0
+              ? "Run preflight, then copy the rebuild command to upgrade."
+              : "Create a snapshot before copying the rebuild command to upgrade."
+            : snapshots.count > 0
+              ? "Run preflight before any manual rebuild."
+              : "Create a snapshot before any manual rebuild.";
         return [
           '<div class="health-card">',
           '<div class="health-head"><strong>Rebuild Guard</strong>' + snapshotChip + '</div>',
           '<div class="health-grid">',
+          '<div>Version</div><div>' + chip(versionChipLabel(version), versionChipKind(version)) + ' <span class="muted">' + esc(versionLabel(version && version.current)) + " -> " + esc(versionLabel(version && version.target)) + '</span></div>',
           '<div>Latest</div><div><span class="wrap-text">' + esc(latestText) + '</span></div>',
           '<div>Path</div><div><span class="wrap-text">' + esc(pathText) + '</span></div>',
           '<div>Next</div><div><span class="wrap-text">' + esc(nextText) + '</span></div>',
@@ -730,6 +796,7 @@ export const UI_HTML = String.raw`<!doctype html>
         authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/actions/" + action, { method: "POST" })
           .then(function (result) {
             commandOutputByName[sandbox.name] = { title: title, result: result };
+            if (action === "doctor" || action === "rebuild-preflight") load().catch(function () {});
           })
           .catch(function (err) {
             commandOutputByName[sandbox.name] = { title: title, result: { ok: false, status: null, stdout: "", stderr: err.message } };

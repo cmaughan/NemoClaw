@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { CLI_NAME } from "../cli/branding";
+import * as sandboxVersion from "../sandbox/version";
 import { redactFull } from "../security/redact";
 import * as registry from "../state/registry";
 import * as sandboxState from "../state/sandbox";
-import type { UiOverview, UiSandboxSummary, UiSnapshotSummary } from "./model";
+import type { UiOverview, UiSandboxSummary, UiSnapshotSummary, UiVersionSummary } from "./model";
 
 function clean(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -116,6 +117,45 @@ function snapshotsForSandbox(name: string): UiSnapshotSummary {
   }
 }
 
+function versionForSandbox(name: string): UiVersionSummary {
+  try {
+    const version = sandboxVersion.checkAgentVersion(name, { skipProbe: true });
+    const current = clean(version.sandboxVersion);
+    const target = clean(version.expectedVersion);
+    const state: UiVersionSummary["state"] = !target
+      ? "unmanaged"
+      : version.isStale
+        ? "stale"
+        : current
+          ? "current"
+          : "unknown";
+
+    return {
+      current,
+      target,
+      stale: state === "stale",
+      state,
+      detectionMethod: version.detectionMethod,
+      command:
+        state === "stale"
+          ? `${CLI_NAME} ${name} rebuild`
+          : state === "unknown"
+            ? `${CLI_NAME} ${name} doctor`
+            : null,
+    };
+  } catch (error) {
+    return {
+      current: null,
+      target: null,
+      stale: false,
+      state: "unknown",
+      detectionMethod: "unavailable",
+      command: `${CLI_NAME} ${name} doctor`,
+      error: redactFull(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
 export async function buildUiOverview(_rootDir: string): Promise<UiOverview> {
   // Deliberately registry-first. The UI server must stay alive even when
   // OpenShell is missing, down, or wedged. CLI status helpers are allowed to
@@ -165,6 +205,7 @@ export async function buildUiOverview(_rootDir: string): Promise<UiOverview> {
         messagingChannels,
         disabledChannels,
       }),
+      version: versionForSandbox(sandbox.name),
       snapshots: snapshotsForSandbox(sandbox.name),
       commands: commandsForSandbox(sandbox.name),
     };

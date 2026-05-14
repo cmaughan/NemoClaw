@@ -31,6 +31,14 @@ const overview: UiOverview = {
       messagingChannels: [],
       disabledChannels: [],
       warnings: [],
+      version: {
+        current: "2026.4.24",
+        target: "2026.4.24",
+        stale: false,
+        state: "current",
+        detectionMethod: "registry",
+        command: null,
+      },
       snapshots: {
         count: 1,
         latest: {
