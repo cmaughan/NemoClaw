@@ -20,6 +20,7 @@ import type {
   UiSnapshotSummary,
   UiVersionSummary,
 } from "./model";
+import { probeUiGatewayHealth } from "./gateway-health";
 
 function clean(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -392,12 +393,13 @@ function versionForSandbox(name: string): UiVersionSummary {
   }
 }
 
-export async function buildUiOverview(_rootDir: string): Promise<UiOverview> {
+export async function buildUiOverview(rootDir: string): Promise<UiOverview> {
   // Deliberately registry-first. The UI server must stay alive even when
-  // OpenShell is missing, down, or wedged. CLI status helpers are allowed to
-  // process.exit() for command UX, so the dashboard avoids them in v1.
+  // OpenShell is missing, down, or wedged. Gateway probing uses a UI-specific
+  // non-exiting helper so refreshes can show degraded state without killing
+  // the dashboard process.
   const registered = registry.listSandboxes();
-  const gatewayHealth = null;
+  const gatewayHealth = registered.sandboxes.length > 0 ? probeUiGatewayHealth(rootDir) : null;
   const channelOverlaps = findAllOverlaps(registry);
 
   const sandboxes = registered.sandboxes.map((sandbox): UiSandboxSummary => {

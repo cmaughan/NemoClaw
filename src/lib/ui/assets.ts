@@ -89,9 +89,11 @@ export const UI_HTML = String.raw`<!doctype html>
     }
 
     main {
+      --sandbox-pane-width: minmax(420px, 1fr);
+      --detail-pane-width: minmax(360px, 520px);
       display: grid;
-      grid-template-columns: minmax(420px, 1fr) minmax(360px, 520px);
-      gap: 16px;
+      grid-template-columns: var(--sandbox-pane-width) 10px var(--detail-pane-width);
+      gap: 8px;
       padding: 16px;
     }
 
@@ -101,6 +103,39 @@ export const UI_HTML = String.raw`<!doctype html>
       border: 1px solid var(--line);
       border-radius: 8px;
       box-shadow: var(--shadow);
+    }
+
+    .column-splitter {
+      min-height: calc(100vh - 98px);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel-soft);
+      cursor: col-resize;
+      position: relative;
+      touch-action: none;
+    }
+
+    .column-splitter::before {
+      content: "";
+      position: absolute;
+      top: 14px;
+      bottom: 14px;
+      left: 50%;
+      border-left: 1px solid #aeb8ac;
+      transform: translateX(-50%);
+    }
+
+    .column-splitter:hover,
+    .column-splitter.dragging,
+    .column-splitter:focus-visible {
+      border-color: var(--accent);
+      background: #eaf3e5;
+      outline: none;
+    }
+
+    body.resizing-columns {
+      cursor: col-resize;
+      user-select: none;
     }
 
     .section-head {
@@ -140,54 +175,86 @@ export const UI_HTML = String.raw`<!doctype html>
     .chip.warn { color: var(--warn); border-color: #e0c47b; }
     .chip.bad { color: var(--bad); border-color: #e8a29a; }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
+    .sandbox-list {
+      display: grid;
+      gap: 0;
     }
 
-    .sandbox-table th:nth-child(1), .sandbox-table td:nth-child(1) { width: 18%; }
-    .sandbox-table th:nth-child(2), .sandbox-table td:nth-child(2) { width: 12%; }
-    .sandbox-table th:nth-child(3), .sandbox-table td:nth-child(3) { width: 18%; }
-    .sandbox-table th:nth-child(4), .sandbox-table td:nth-child(4) { width: 9%; }
-    .sandbox-table th:nth-child(5), .sandbox-table td:nth-child(5) { width: 8%; }
-    .sandbox-table th:nth-child(6), .sandbox-table td:nth-child(6) { width: 15%; }
-    .sandbox-table th:nth-child(7), .sandbox-table td:nth-child(7) { width: 12%; }
-    .sandbox-table th:nth-child(8), .sandbox-table td:nth-child(8) { width: 8%; }
-
-    th, td {
-      min-width: 0;
+    .sandbox-row {
+      display: grid;
+      width: 100%;
       padding: 10px 12px;
+      border: 0;
       border-bottom: 1px solid var(--line);
-      vertical-align: top;
+      border-radius: 0;
+      background: transparent;
+      cursor: pointer;
       text-align: left;
+    }
+
+    .sandbox-row[data-selected="true"] { background: #eef6e8; }
+    .sandbox-row:hover { background: #f5f9f2; }
+
+    .sandbox-name {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      padding: 0 0 6px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .sandbox-kv {
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr);
+      gap: 0 10px;
+      min-width: 0;
       font-size: 13px;
     }
 
-    th {
+    .sandbox-label {
+      padding: 4px 0;
       color: var(--muted);
       font-size: 12px;
       font-weight: 700;
-      background: #fbfcfb;
+      line-height: 1.35;
     }
 
-    tr[data-selected="true"] { background: #eef6e8; }
-    tr.sandbox-row { cursor: pointer; }
-    tr.sandbox-row:hover { background: #f5f9f2; }
-
-    .name-cell {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      min-width: 0;
-    }
-
-    .name-line {
+    .sandbox-value {
       display: flex;
       align-items: center;
-      gap: 6px;
+      flex-wrap: wrap;
+      gap: 4px 6px;
       min-width: 0;
-      font-weight: 700;
+      padding: 4px 0;
+      line-height: 1.35;
+    }
+
+    .sandbox-value-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .sandbox-value .truncate {
+      max-width: 100%;
+    }
+
+    .readonly-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text);
+    }
+
+    .readonly-check input {
+      width: 14px;
+      min-width: 14px;
+      height: 14px;
+      min-height: 0;
+      margin: 0;
+      padding: 0;
     }
 
     .truncate {
@@ -207,16 +274,6 @@ export const UI_HTML = String.raw`<!doctype html>
       line-height: 1.35;
     }
 
-    .state-cell .chip {
-      display: block;
-      width: 100%;
-      min-width: 0;
-      overflow: hidden;
-      text-align: center;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
     .muted { color: var(--muted); }
     .mono {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
@@ -226,25 +283,36 @@ export const UI_HTML = String.raw`<!doctype html>
     .detail {
       display: flex;
       flex-direction: column;
+      height: calc(100vh - 98px);
       min-height: calc(100vh - 98px);
     }
 
     .detail-body {
+      flex: 1 1 auto;
+      min-height: 0;
       padding: 14px 16px;
       overflow: auto;
     }
 
     .tabs {
+      flex: 0 0 44px;
       display: flex;
       gap: 4px;
+      align-items: flex-end;
+      min-height: 44px;
+      height: 44px;
       padding: 8px 8px 0;
       border-bottom: 1px solid var(--line);
       background: #fbfcfb;
       overflow-x: auto;
+      overflow-y: hidden;
     }
 
     .tab {
       flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
       border-bottom-left-radius: 0;
       border-bottom-right-radius: 0;
       border-bottom-color: transparent;
@@ -389,7 +457,8 @@ export const UI_HTML = String.raw`<!doctype html>
     }
 
     pre.log {
-      height: 420px;
+      flex: 1 1 auto;
+      min-height: 0;
       overflow: auto;
       margin: 10px 0 0;
       padding: 12px;
@@ -400,11 +469,48 @@ export const UI_HTML = String.raw`<!doctype html>
       word-break: break-word;
     }
 
+    .logs-detail {
+      display: flex;
+      flex-direction: column;
+    }
+
     .log-tools {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      flex: 0 0 auto;
+      display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       align-items: center;
+    }
+
+    .log-tools input {
+      flex: 1 1 180px;
+    }
+
+    .log-stream-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .log-stream-actions button {
+      min-width: 72px;
+    }
+
+    .log-stream-actions button.danger {
+      color: #fff;
+      border-color: #8f1f17;
+      background: var(--bad);
+    }
+
+    .log-stream-actions button.danger:hover:not(:disabled) {
+      border-color: #7c1b14;
+      background: #9f2017;
+    }
+
+    .log-stream-actions button.danger:disabled {
+      color: var(--bad);
+      border-color: #e5bab6;
+      background: var(--panel);
     }
 
     input {
@@ -438,14 +544,9 @@ export const UI_HTML = String.raw`<!doctype html>
 
     @media (max-width: 900px) {
       main { grid-template-columns: 1fr; }
-      .detail { min-height: auto; }
-      .wide-only { display: none; }
-      .sandbox-table th:nth-child(1), .sandbox-table td:nth-child(1) { width: 32%; }
-      .sandbox-table th:nth-child(2), .sandbox-table td:nth-child(2) { width: 20%; }
-      .sandbox-table th:nth-child(3), .sandbox-table td:nth-child(3) { width: 28%; }
-      .sandbox-table th:nth-child(8), .sandbox-table td:nth-child(8) { width: 20%; }
-      .sandbox-table th, .sandbox-table td { padding: 8px 6px; }
-      .sandbox-table a { overflow-wrap: anywhere; }
+      .column-splitter { display: none; }
+      .detail { height: auto; min-height: auto; }
+      pre.log { min-height: min(70vh, 520px); }
     }
   </style>
 </head>
@@ -457,8 +558,8 @@ export const UI_HTML = String.raw`<!doctype html>
     </div>
   </header>
 
-  <main>
-    <section>
+  <main id="layout">
+    <section id="sandbox-pane">
       <div class="section-head">
         <h2>Sandboxes</h2>
         <span id="updated" class="muted mono"></span>
@@ -468,11 +569,19 @@ export const UI_HTML = String.raw`<!doctype html>
       <div id="sandboxes"></div>
     </section>
 
+    <div
+      id="column-splitter"
+      class="column-splitter"
+      role="separator"
+      aria-label="Resize sandbox and detail panes"
+      aria-orientation="vertical"
+      aria-valuemin="320"
+      aria-valuemax="320"
+      aria-valuenow="420"
+      tabindex="0"
+    ></div>
+
     <section class="detail">
-      <div class="section-head">
-        <h2 id="detail-title">Details</h2>
-        <button id="open-endpoint" disabled>Open</button>
-      </div>
       <div class="tabs">
         <button class="tab active" data-tab="health">Health</button>
         <button class="tab" data-tab="logs">Logs</button>
@@ -502,6 +611,9 @@ export const UI_HTML = String.raw`<!doctype html>
       var channelTestByName = {};
       var channelTestLoadingByName = {};
       var commandOutputByName = {};
+      var SPLIT_STORAGE_KEY = "nemoclaw.ui.sandboxPaneWidth";
+      var MIN_SANDBOX_PANE_WIDTH = 320;
+      var MIN_DETAIL_PANE_WIDTH = 320;
 
       function $(id) { return document.getElementById(id); }
 
@@ -512,6 +624,128 @@ export const UI_HTML = String.raw`<!doctype html>
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;")
           .replace(/'/g, "&#39;");
+      }
+
+      function storedPaneWidth() {
+        try {
+          var value = window.localStorage.getItem(SPLIT_STORAGE_KEY);
+          var width = value ? Number(value) : NaN;
+          return isFinite(width) && width > 0 ? width : null;
+        } catch (_error) {
+          return null;
+        }
+      }
+
+      function savePaneWidth(width) {
+        try {
+          window.localStorage.setItem(SPLIT_STORAGE_KEY, String(Math.round(width)));
+        } catch (_error) {
+          /* ignore storage failures */
+        }
+      }
+
+      function layoutMetrics() {
+        var layout = $("layout");
+        var splitter = $("column-splitter");
+        if (!layout || !splitter) return null;
+        var style = window.getComputedStyle(layout);
+        var paddingLeft = parseFloat(style.paddingLeft) || 0;
+        var paddingRight = parseFloat(style.paddingRight) || 0;
+        var gap = parseFloat(style.columnGap || style.gap) || 0;
+        var available = layout.clientWidth - paddingLeft - paddingRight;
+        var splitterWidth = splitter.offsetWidth || 10;
+        var maxLeft = available - splitterWidth - gap * 2 - MIN_DETAIL_PANE_WIDTH;
+        if (maxLeft < MIN_SANDBOX_PANE_WIDTH) return null;
+        return {
+          layout: layout,
+          splitter: splitter,
+          paddingLeft: paddingLeft,
+          minLeft: MIN_SANDBOX_PANE_WIDTH,
+          maxLeft: maxLeft
+        };
+      }
+
+      function clampPaneWidth(width) {
+        var metrics = layoutMetrics();
+        if (!metrics) return null;
+        return Math.max(metrics.minLeft, Math.min(metrics.maxLeft, width));
+      }
+
+      function setPaneWidth(width, persist) {
+        var metrics = layoutMetrics();
+        var clamped = clampPaneWidth(width);
+        if (!metrics || clamped == null) return;
+        metrics.layout.style.setProperty("--sandbox-pane-width", Math.round(clamped) + "px");
+        metrics.layout.style.setProperty("--detail-pane-width", "minmax(" + MIN_DETAIL_PANE_WIDTH + "px, 1fr)");
+        metrics.splitter.setAttribute("aria-valuemin", String(Math.round(metrics.minLeft)));
+        metrics.splitter.setAttribute("aria-valuemax", String(Math.round(metrics.maxLeft)));
+        metrics.splitter.setAttribute("aria-valuenow", String(Math.round(clamped)));
+        if (persist) savePaneWidth(clamped);
+      }
+
+      function restorePaneWidth() {
+        var width = storedPaneWidth();
+        if (width != null) setPaneWidth(width, false);
+      }
+
+      function bindColumnSplitter() {
+        var splitter = $("column-splitter");
+        var pane = $("sandbox-pane");
+        if (!splitter || !pane) return;
+        var dragging = false;
+
+        function widthFromClientX(clientX) {
+          var metrics = layoutMetrics();
+          if (!metrics) return null;
+          var rect = metrics.layout.getBoundingClientRect();
+          return clientX - rect.left - metrics.paddingLeft;
+        }
+
+        function currentPaneWidth() {
+          return pane.getBoundingClientRect().width;
+        }
+
+        function stopDrag(event) {
+          if (!dragging) return;
+          dragging = false;
+          splitter.classList.remove("dragging");
+          document.body.classList.remove("resizing-columns");
+          if (event && typeof event.clientX === "number") {
+            var width = widthFromClientX(event.clientX);
+            if (width != null) setPaneWidth(width, true);
+          }
+          if (event && splitter.releasePointerCapture) {
+            try { splitter.releasePointerCapture(event.pointerId); } catch (_error) { /* ignore */ }
+          }
+        }
+
+        splitter.addEventListener("pointerdown", function (event) {
+          if (event.button !== 0) return;
+          var width = widthFromClientX(event.clientX);
+          if (width == null) return;
+          dragging = true;
+          splitter.classList.add("dragging");
+          document.body.classList.add("resizing-columns");
+          if (splitter.setPointerCapture) splitter.setPointerCapture(event.pointerId);
+          setPaneWidth(width, false);
+          event.preventDefault();
+        });
+        splitter.addEventListener("pointermove", function (event) {
+          if (!dragging) return;
+          var width = widthFromClientX(event.clientX);
+          if (width != null) setPaneWidth(width, false);
+        });
+        splitter.addEventListener("pointerup", stopDrag);
+        splitter.addEventListener("pointercancel", stopDrag);
+        splitter.addEventListener("keydown", function (event) {
+          var direction = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
+          if (!direction) return;
+          var step = event.shiftKey ? 64 : 24;
+          setPaneWidth(currentPaneWidth() + direction * step, true);
+          event.preventDefault();
+        });
+        window.addEventListener("resize", restorePaneWidth);
+        restorePaneWidth();
       }
 
       function authFetch(path, options) {
@@ -549,7 +783,6 @@ export const UI_HTML = String.raw`<!doctype html>
           parts.push(chip("model " + overview.liveInference.model, ""));
         }
         parts.push(chip(overview.commands.openApprovals, "warn"));
-        parts.push('<button data-global-action="inference-get">Inference</button>');
         parts.push('<button data-global-action="upgrade-check">Upgrade check</button>');
         $("summary").innerHTML = parts.join("");
         $("updated").textContent = overview.generatedAt ? new Date(overview.generatedAt).toLocaleTimeString() : "";
@@ -572,38 +805,58 @@ export const UI_HTML = String.raw`<!doctype html>
           $("sandboxes").innerHTML = '<div class="empty">No sandboxes registered.</div>';
           return;
         }
+        function sandboxField(label, value) {
+          return '<div class="sandbox-label">' + esc(label) + '</div><div class="sandbox-value">' + value + '</div>';
+        }
         var rows = overview.sandboxes.map(function (sandbox) {
-          var warn = sandbox.warnings.length > 0 ? chip(sandbox.warnings.length + " warning" + (sandbox.warnings.length === 1 ? "" : "s"), "warn") : chip("ok", "good");
-          var connected = sandbox.connected ? chip((sandbox.activeSessionCount || 1) + " connected", "good") : chip("idle", "");
-          var port = sandbox.dashboardPort == null ? "none" : String(sandbox.dashboardPort);
+          var state = sandbox.warnings.length > 0 ? sandbox.warnings.length + " warning" + (sandbox.warnings.length === 1 ? "" : "s") : "ok";
+          var connected = sandbox.connected ? (sandbox.activeSessionCount || 1) + " connected" : "idle";
           var policyCount = sandbox.policy && sandbox.policy.registryApplied ? sandbox.policy.registryApplied.length : sandbox.policies.length;
+          var policyLabel = policyCount ? policyCount + " polic" + (policyCount === 1 ? "y" : "ies") : "none";
+          var policyTitle = policyCount ? sandbox.policies.join(", ") : "none";
           var endpoint = sandbox.dashboardUrl
-            ? '<a href="' + esc(sandbox.dashboardUrl) + '" target="_blank" rel="noreferrer">' + esc(sandbox.endpointLabel) + '</a>'
+            ? '<a class="truncate" href="' + esc(sandbox.dashboardUrl) + '" target="_blank" rel="noreferrer">' + esc(sandbox.dashboardUrl) + '</a>'
             : '<span class="muted">none</span>';
+          var phase = sandbox.phase || "registered";
+          var currentVersion = versionLabel(sandbox.version && sandbox.version.current);
+          var defaultValue = '<label class="readonly-check"><input type="checkbox" disabled' + (sandbox.isDefault ? " checked" : "") + '><span>' + (sandbox.isDefault ? "yes" : "no") + '</span></label>';
           return [
-            '<tr class="sandbox-row" data-name="' + esc(sandbox.name) + '" data-selected="' + String(sandbox.name === selectedName) + '">',
-            '<td><div class="name-cell"><div class="name-line"><span class="truncate">' + esc(sandbox.name) + '</span>' + (sandbox.isDefault ? chip("default", "good") : "") + '</div><span class="muted">' + esc(sandbox.agent) + '</span></div></td>',
-            '<td>' + chip(sandbox.phase || "registered", sandbox.phase === "ready" || sandbox.phase === "connected" ? "good" : sandbox.phase === "attention" || sandbox.phase === "rebuild ready" ? "warn" : "") + '</td>',
-            '<td><div class="truncate">' + esc(sandbox.model || "unknown") + '</div><div class="muted truncate">' + esc(sandbox.provider || "unknown") + '</div></td>',
-            '<td class="wide-only">' + connected + '</td>',
-            '<td class="wide-only">' + esc(port) + '</td>',
-            '<td class="wide-only"><span class="wrap-text">' + esc(policyCount ? sandbox.policies.join(", ") : "none") + '</span></td>',
-            '<td>' + endpoint + '</td>',
-            '<td class="state-cell">' + warn + '</td>',
-            '</tr>'
+            '<div class="sandbox-row" role="button" tabindex="0" data-name="' + esc(sandbox.name) + '" data-selected="' + String(sandbox.name === selectedName) + '">',
+            '<div class="sandbox-name"><span class="truncate">' + esc(sandbox.name) + '</span></div>',
+            '<div class="sandbox-kv">',
+            sandboxField("Agent", '<span class="truncate">' + esc(sandbox.agent || "unknown") + '</span>'),
+            sandboxField("Is Default", defaultValue),
+            sandboxField("Phase", esc(phase)),
+            sandboxField("Session", esc(connected)),
+            sandboxField("Policy", '<span class="truncate" title="' + esc(policyTitle) + '">' + esc(policyLabel) + '</span>'),
+            sandboxField("Endpoint", endpoint),
+            sandboxField("Inference", '<span class="truncate">' + esc(sandbox.model || "unknown") + '</span>'),
+            sandboxField("Provider", '<span class="truncate">' + esc(sandbox.provider || "unknown") + '</span>'),
+            sandboxField("Version", esc(currentVersion)),
+            sandboxField("State", esc(state)),
+            '</div>',
+            '</div>'
           ].join("");
         }).join("");
         $("sandboxes").innerHTML = [
-          '<table class="sandbox-table">',
-          '<thead><tr><th>Sandbox</th><th>Phase</th><th>Inference</th><th class="wide-only">Session</th><th class="wide-only">Port</th><th class="wide-only">Policy</th><th>Endpoint</th><th>State</th></tr></thead>',
-          '<tbody>' + rows + '</tbody>',
-          '</table>'
+          '<div class="sandbox-list">',
+          rows,
+          '</div>'
         ].join("");
+        function selectRow(row) {
+          selectedName = row.getAttribute("data-name");
+          stopLogs();
+          renderAll();
+        }
         Array.prototype.forEach.call(document.querySelectorAll(".sandbox-row"), function (row) {
-          row.addEventListener("click", function () {
-            selectedName = row.getAttribute("data-name");
-            stopLogs();
-            renderAll();
+          row.addEventListener("click", function (event) {
+            if (event.target && event.target.closest && event.target.closest("a")) return;
+            selectRow(row);
+          });
+          row.addEventListener("keydown", function (event) {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            selectRow(row);
           });
         });
       }
@@ -825,15 +1078,7 @@ export const UI_HTML = String.raw`<!doctype html>
           : "";
         return [
           '<div class="kv">',
-          '<div>Agent</div><div>' + esc(sandbox.agent) + '</div>',
-          '<div>Phase</div><div>' + esc(sandbox.phase || "registered") + '</div>',
-          '<div>Model</div><div class="truncate">' + esc(sandbox.model || "unknown") + '</div>',
-          '<div>Provider</div><div class="truncate">' + esc(sandbox.provider || "unknown") + '</div>',
           '<div>Gateway</div><div>' + esc(sandbox.gatewayHealth) + '</div>',
-          '<div>Inference</div><div>' + esc(sandbox.inferenceHealth) + '</div>',
-          '<div>Connected</div><div>' + esc(sandbox.connected ? String(sandbox.activeSessionCount || 1) : "no") + '</div>',
-          '<div>Port</div><div>' + esc(sandbox.dashboardPort == null ? "none" : String(sandbox.dashboardPort)) + '</div>',
-          '<div>Endpoint</div><div>' + (sandbox.dashboardUrl ? '<a href="' + esc(sandbox.dashboardUrl) + '" target="_blank" rel="noreferrer">' + esc(sandbox.dashboardUrl) + '</a>' : '<span class="muted">none</span>') + '</div>',
           '</div>',
           warnings,
           renderVersionReadiness(sandbox),
@@ -1033,8 +1278,10 @@ export const UI_HTML = String.raw`<!doctype html>
           '<option value="1000">1000</option>',
           '</select>',
           '<input id="log-filter" placeholder="Filter logs" value="">',
+          '<div class="log-stream-actions">',
           '<button id="start-logs" class="primary">Start</button>',
-          '<button id="stop-logs">Stop</button>',
+          '<button id="stop-logs" class="danger" disabled>Stop</button>',
+          '</div>',
           '<button data-log-filter="policy|denied|blocked">Policy</button>',
           '<button data-log-filter="gateway|error|failed">Gateway</button>',
           '<button data-log-filter="inference|provider|model">Inference</button>',
@@ -1296,7 +1543,7 @@ export const UI_HTML = String.raw`<!doctype html>
         }
         var stopLogs = $("stop-logs");
         if (stopLogs) {
-          stopLogs.addEventListener("click", function () { window.stopLogs(); });
+          stopLogs.addEventListener("click", function () { window.stopLogs(true); });
         }
         Array.prototype.forEach.call(document.querySelectorAll("[data-log-filter]"), function (button) {
           button.addEventListener("click", function () {
@@ -1310,24 +1557,17 @@ export const UI_HTML = String.raw`<!doctype html>
         if (filter) {
           filter.addEventListener("input", function () { renderLogOutput(filter.value); });
         }
+        updateLogControls();
       }
 
       function renderDetail() {
         var sandbox = selectedSandbox();
-        var openButton = $("open-endpoint");
         if (!sandbox) {
-          $("detail-title").textContent = "Details";
-          openButton.disabled = true;
           $("detail").className = "detail-body empty";
           $("detail").innerHTML = "Select a sandbox.";
           return;
         }
-        $("detail-title").textContent = sandbox.name;
-        openButton.disabled = !sandbox.dashboardUrl;
-        openButton.onclick = function () {
-          if (sandbox.dashboardUrl) window.open(sandbox.dashboardUrl, "_blank", "noreferrer");
-        };
-        $("detail").className = "detail-body";
+        $("detail").className = activeTab === "logs" ? "detail-body logs-detail" : "detail-body";
         if (activeTab === "health") $("detail").innerHTML = renderHealth(sandbox);
         if (activeTab === "logs") $("detail").innerHTML = renderLogs(sandbox);
         if (activeTab === "policy") $("detail").innerHTML = renderPolicy(sandbox);
@@ -1357,12 +1597,21 @@ export const UI_HTML = String.raw`<!doctype html>
         output.scrollTop = output.scrollHeight;
       }
 
+      function updateLogControls() {
+        var startButton = $("start-logs");
+        var stopButton = $("stop-logs");
+        var streamActive = !!eventSource;
+        if (startButton) startButton.disabled = streamActive;
+        if (stopButton) stopButton.disabled = !streamActive;
+      }
+
       function startLogStream(name) {
         stopLogs();
         logLines = [];
         renderLogOutput("");
         var tail = $("log-tail") ? $("log-tail").value : "200";
         eventSource = new EventSource("/api/sandboxes/" + encodeURIComponent(name) + "/logs/stream?token=" + encodeURIComponent(token) + "&tail=" + encodeURIComponent(tail));
+        updateLogControls();
         eventSource.addEventListener("line", function (event) {
           var item = JSON.parse(event.data);
           logLines.push("[" + item.source + "] " + item.line);
@@ -1383,11 +1632,16 @@ export const UI_HTML = String.raw`<!doctype html>
         };
       }
 
-      function stopLogs() {
+      function stopLogs(clearOutput) {
         if (eventSource) {
           eventSource.close();
           eventSource = null;
         }
+        if (clearOutput) {
+          logLines = [];
+          renderLogOutput("");
+        }
+        updateLogControls();
       }
       window.stopLogs = stopLogs;
 
@@ -1431,6 +1685,7 @@ export const UI_HTML = String.raw`<!doctype html>
       }
 
       $("refresh").addEventListener("click", function () { load(); });
+      bindColumnSplitter();
       load();
     }());
   </script>
