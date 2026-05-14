@@ -5,26 +5,26 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-
-import { CLI_DISPLAY_NAME, CLI_NAME } from "../../cli/branding";
-import { recoverNamedGatewayRuntime } from "../../gateway-runtime-action";
-import { readCloudflaredState } from "../../tunnel/services";
-import { probeProviderHealth, type ProviderHealthStatus } from "../../inference/health";
-import { probeSandboxInferenceGatewayHealth } from "./process-recovery";
-import { parseGatewayInference } from "../../inference/config";
 import { stripAnsi } from "../../adapters/openshell/client";
+import { resolveOpenshell } from "../../adapters/openshell/resolve";
 import { captureOpenshell } from "../../adapters/openshell/runtime";
 import { OPENSHELL_PROBE_TIMEOUT_MS } from "../../adapters/openshell/timeouts";
+import { CLI_DISPLAY_NAME, CLI_NAME } from "../../cli/branding";
+import { B, D, G, R, RD, YW } from "../../cli/terminal-style";
+import { isErrnoException } from "../../core/errno";
 import { GATEWAY_PORT, OLLAMA_PORT } from "../../core/ports";
-import * as registry from "../../state/registry";
-import type { SandboxEntry } from "../../state/registry";
-import { resolveOpenshell } from "../../adapters/openshell/resolve";
+import { recoverNamedGatewayRuntime } from "../../gateway-runtime-action";
+import { parseGatewayInference } from "../../inference/config";
+import { type ProviderHealthStatus, probeProviderHealth } from "../../inference/health";
 import { ROOT } from "../../runner";
 import { parseLiveSandboxNames } from "../../runtime-recovery";
 import * as sandboxVersion from "../../sandbox/version";
 import * as shields from "../../shields";
+import type { SandboxEntry } from "../../state/registry";
+import * as registry from "../../state/registry";
 import { buildStatusCommandDeps } from "../../status-command-deps";
-import { B, D, G, R, RD, YW } from "../../cli/terminal-style";
+import { readCloudflaredState } from "../../tunnel/services";
+import { probeSandboxInferenceGatewayHealth } from "./process-recovery";
 
 const agentRuntime = require("../../../../bin/lib/agent-runtime");
 
@@ -232,6 +232,21 @@ function dockerInspectGateway(containerName: string): DoctorCheck[] {
     });
   }
   return checks;
+}
+
+function openShellDriverGateway(sb: SandboxEntry | null | undefined): "docker" | "vm" | null {
+  const driver = sb?.openshellDriver;
+  return driver === "docker" || driver === "vm" ? driver : null;
+}
+
+function openshellDriverGatewayCheck(driver: string, openshellConnected: boolean): DoctorCheck {
+  return {
+    group: "Gateway",
+    label: "Gateway driver",
+    status: openshellConnected ? "ok" : "info",
+    detail: `${driver} driver uses an OpenShell-managed gateway; Docker container check skipped`,
+    hint: openshellConnected ? undefined : "fix the OpenShell status check before trusting gateway readiness",
+  };
 }
 
 function findSandboxListLine(output: string, sandboxName: string): string | null {
@@ -445,8 +460,6 @@ export async function runSandboxDoctor(sandboxName: string, args: string[] = [])
     hint: openshellBin ? undefined : "install OpenShell before using sandbox commands",
   });
 
-  checks.push(...dockerInspectGateway(`openshell-cluster-${NEMOCLAW_GATEWAY_NAME}`));
-
   let openshellConnected = false;
   if (openshellBin) {
     const recovery = await recoverNamedGatewayRuntime();
@@ -462,6 +475,13 @@ export async function runSandboxDoctor(sandboxName: string, args: string[] = [])
         : oneLine(cleanStatus || lifecycle?.gatewayInfo || "not connected to nemoclaw"),
       hint: openshellConnected ? undefined : "run `openshell gateway select nemoclaw` and retry",
     });
+  }
+
+  const driverGateway = openShellDriverGateway(sb);
+  if (driverGateway) {
+    checks.push(openshellDriverGatewayCheck(driverGateway, openshellConnected));
+  } else {
+    checks.push(...dockerInspectGateway(`openshell-cluster-${NEMOCLAW_GATEWAY_NAME}`));
   }
 
   if (openshellBin && openshellConnected) {

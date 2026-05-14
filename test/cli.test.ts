@@ -120,6 +120,7 @@ type SandboxEntry = {
   gpuEnabled: boolean;
   policies: string[];
   agent?: string;
+  openshellDriver?: string;
 };
 
 function writeRecordingCommand(
@@ -216,12 +217,17 @@ function createLogsTestSetup(prefix: string, openshellLines: string[] = []) {
   };
 }
 
-function createDoctorTestSetup(prefix: string, openshellLines: string[], sandboxName = "alpha") {
+function createDoctorTestSetup(
+  prefix: string,
+  openshellLines: string[],
+  sandboxName = "alpha",
+  sandboxOverrides: Partial<SandboxEntry> = {},
+) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const localBin = path.join(home, "bin");
   const markerFile = path.join(home, "doctor-calls");
   fs.mkdirSync(localBin, { recursive: true });
-  writeSandboxRegistry(home, sandboxName);
+  writeSandboxRegistry(home, sandboxName, sandboxOverrides);
 
   fs.writeFileSync(
     path.join(localBin, "openshell"),
@@ -1514,6 +1520,50 @@ describe("CLI dispatch", () => {
     expect(r.out).toContain("OpenShell status");
     expect(r.out).toContain("Gateway: other");
     expect(setup.readCalls().some((call) => /^sandbox list(\s|$)/.test(call))).toBe(false);
+  });
+
+  it("doctor skips the legacy Docker gateway container check for VM-driver sandboxes", () => {
+    const setup = createDoctorTestSetup(
+      "nemoclaw-cli-doctor-vm-driver-",
+      [
+        'case "$*" in',
+        '  "status") printf "Server Status\\n\\n  Gateway: nemoclaw\\n  Status: Connected\\n"; exit 0 ;;',
+        '  "gateway info -g nemoclaw") printf "Gateway: nemoclaw\\n"; exit 0 ;;',
+        '  "sandbox list") printf "NAME STATUS\\nalpha Ready\\n"; exit 0 ;;',
+        '  "inference get") printf "Provider: nvidia-prod\\nModel: test-model\\n"; exit 0 ;;',
+        "esac",
+      ],
+      "alpha",
+      { openshellDriver: "vm" },
+    );
+    const dockerCalls = path.join(setup.home, "docker-calls");
+    fs.writeFileSync(
+      path.join(setup.localBin, "docker"),
+      [
+        "#!/usr/bin/env bash",
+        `printf '%s\\n' "$*" >> ${JSON.stringify(dockerCalls)}`,
+        'if [ "$1" = "info" ]; then echo "24.0.0"; exit 0; fi',
+        'if [ "$1" = "inspect" ]; then echo "not found" >&2; exit 1; fi',
+        "exit 1",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    const r = setup.runDoctor("alpha doctor --json");
+
+    const report = JSON.parse(r.out) as {
+      checks: Array<{ label: string; status: string; detail: string }>;
+    };
+    expect(report.checks.find((check) => check.label === "Docker container")).toBeUndefined();
+    expect(report.checks.find((check) => check.label === "Gateway driver")).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        detail: expect.stringContaining("vm driver"),
+      }),
+    );
+    const calls = fs.existsSync(dockerCalls) ? fs.readFileSync(dockerCalls, "utf8") : "";
+    expect(calls).toContain("info --format {{.ServerVersion}}");
+    expect(calls).not.toContain("inspect");
   });
 
   it("doctor treats a live non-cloudflared PID as stale", () => {
