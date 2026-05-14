@@ -637,6 +637,7 @@ RUN if [ "$NEMOCLAW_DARWIN_VM_COMPAT" = "1" ]; then \
             find "$p" -type d -exec chmod a+rwx {} +; \
         done; \
         chmod a+rw /sandbox/.nemoclaw/config.json; \
+        chmod a+rw /sandbox/.bashrc /sandbox/.profile; \
     fi
 
 # Entrypoint runs as root to start the gateway as the gateway user,

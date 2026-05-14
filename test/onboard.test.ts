@@ -437,6 +437,11 @@ startGateway(null).catch(() => {});
     }
   });
 
+  it("relaxes trusted rc files for macOS VM rootfs ownership repair", () => {
+    const dockerfile = fs.readFileSync(path.join(repoRoot, "Dockerfile"), "utf8");
+    assert.match(dockerfile, /chmod a\+rw \/sandbox\/\.bashrc \/sandbox\/\.profile/);
+  });
+
   it("getNavigationChoice recognizes back and exit commands case-insensitively", () => {
     expect(getNavigationChoice("back")).toBe("back");
     expect(getNavigationChoice("BACK")).toBe("back");
