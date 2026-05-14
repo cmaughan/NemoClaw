@@ -4,14 +4,18 @@
 import { CLI_NAME } from "../cli/branding";
 import { resolveMessagingTestTarget } from "../messaging/test-send";
 import { findAllOverlaps } from "../messaging-conflict";
+import * as policiesModule from "../policy/index";
 import { getChannelTokenKeys, listChannels } from "../sandbox/channels";
 import * as sandboxVersion from "../sandbox/version";
 import { redactFull } from "../security/redact";
 import * as registry from "../state/registry";
 import * as sandboxState from "../state/sandbox";
+import * as sandboxSession from "../state/sandbox-session";
 import type {
   UiChannelSummary,
   UiOverview,
+  UiPolicySummary,
+  UiPolicyPresetSummary,
   UiSandboxSummary,
   UiSnapshotSummary,
   UiVersionSummary,
@@ -98,32 +102,110 @@ function commandsForSandbox(name: string): UiSandboxSummary["commands"] {
     policyList: `${CLI_NAME} ${name} policy-list`,
     channelsList: `${CLI_NAME} ${name} channels list`,
     snapshotList: `${CLI_NAME} ${name} snapshot list`,
+    shareStatus: `${CLI_NAME} ${name} share status`,
     rebuild: `${CLI_NAME} ${name} rebuild`,
+    inferenceSet: `${CLI_NAME} inference set --sandbox ${name} --provider <provider> --model <model>`,
+  };
+}
+
+function policyCommands(sandboxName: string, presetName: string): UiPolicyPresetSummary["commands"] {
+  return {
+    addDryRun: `${CLI_NAME} ${sandboxName} policy-add ${presetName} --dry-run`,
+    add: `${CLI_NAME} ${sandboxName} policy-add ${presetName} --yes`,
+    removeDryRun: `${CLI_NAME} ${sandboxName} policy-remove ${presetName} --dry-run`,
+    remove: `${CLI_NAME} ${sandboxName} policy-remove ${presetName} --yes`,
+  };
+}
+
+function policyForSandbox(sandboxName: string): UiPolicySummary {
+  const registryApplied = policiesModule.getAppliedPresets(sandboxName).map((name) => clean(name) || name);
+  const appliedSet = new Set(registryApplied);
+  const available = policiesModule
+    .listSetupPolicyPresets(sandboxName)
+    .map((preset): UiPolicyPresetSummary => {
+      const name = clean(preset.name) || preset.name;
+      return {
+        name,
+        description: clean(preset.description) || "",
+        source: preset.description === "custom preset" ? "custom" : "built-in",
+        file: clean(preset.file) || preset.file,
+        appliedRegistry: appliedSet.has(name),
+        appliedGateway: null,
+        commands: policyCommands(sandboxName, name),
+      };
+    });
+
+  return {
+    registryApplied,
+    gatewayApplied: null,
+    liveState: "unchecked",
+    available,
+    customPresetCommand: `${CLI_NAME} ${sandboxName} policy-add --from-file <path> --dry-run`,
   };
 }
 
 function snapshotsForSandbox(name: string): UiSnapshotSummary {
   try {
     const backups = sandboxState.listBackups(name);
-    const latest = backups.at(-1);
+    const items = backups.map((backup) => {
+      const version = `v${backup.snapshotVersion}`;
+      return {
+        version,
+        selector: version,
+        name: clean(backup.name) || null,
+        timestamp: backup.timestamp,
+        path: redactFull(backup.backupPath),
+        restoreCommand: `${CLI_NAME} ${name} snapshot restore ${version}`,
+        cloneCommand: `${CLI_NAME} ${name} snapshot restore ${version} --to <sandbox>`,
+      };
+    });
+    const latest = items[0] || null;
     return {
       count: backups.length,
-      latest: latest
-        ? {
-            version: `v${latest.snapshotVersion}`,
-            name: clean(latest.name) || null,
-            timestamp: latest.timestamp,
-            path: redactFull(latest.backupPath),
-          }
-        : null,
+      items,
+      latest,
     };
   } catch (error) {
     return {
       count: 0,
+      items: [],
       latest: null,
       error: redactFull(error instanceof Error ? error.message : String(error)),
     };
   }
+}
+
+function sessionCountForSandbox(name: string): number | null {
+  const result = sandboxSession.getActiveSandboxSessions(
+    name,
+    sandboxSession.createSystemDeps(process.env.NEMOCLAW_OPENSHELL_BIN || "openshell"),
+  );
+  return result.detected ? result.sessions.length : null;
+}
+
+function phaseForSandbox(input: {
+  connected: boolean;
+  dashboardPort: number | null;
+  version: UiVersionSummary;
+  warnings: string[];
+}): string {
+  if (input.connected) return "connected";
+  if (input.version.state === "stale") return "rebuild ready";
+  if (input.dashboardPort === null) return "needs endpoint";
+  if (input.warnings.length > 0) return "attention";
+  return "ready";
+}
+
+function latestSnapshotForDisplay(snapshot: UiSnapshotSummary): UiSnapshotSummary["latest"] {
+  const latest = snapshot.items[0] || null;
+  return latest
+        ? {
+            version: latest.version,
+            name: latest.name,
+            timestamp: latest.timestamp,
+            path: latest.path,
+          }
+        : null;
 }
 
 function commandSetForChannel(sandboxName: string, channelName: string): UiChannelSummary["commands"] {
@@ -334,13 +416,28 @@ export async function buildUiOverview(_rootDir: string): Promise<UiOverview> {
       ? sandbox.disabledChannels.map((channel) => clean(channel) || channel)
       : [];
     const isDefault = sandbox.name === registered.defaultSandbox;
+    const version = versionForSandbox(sandbox.name);
+    const snapshots = snapshotsForSandbox(sandbox.name);
+    snapshots.latest = latestSnapshotForDisplay(snapshots);
+    const warnings = warningsForSandbox({
+      agent: normalizedAgent,
+      dashboardPort,
+      gatewayHealth,
+      isDefault,
+      policies,
+      messagingChannels,
+      disabledChannels,
+    });
+    const activeSessionCount = sessionCountForSandbox(sandbox.name);
+    const connected = activeSessionCount !== null && activeSessionCount > 0;
 
     return {
       name: sandbox.name,
       agent,
+      phase: phaseForSandbox({ connected, dashboardPort, version, warnings }),
       isDefault,
-      connected: false,
-      activeSessionCount: null,
+      connected,
+      activeSessionCount,
       model: clean(sandbox.model),
       provider: clean(sandbox.provider),
       inferenceHealth: "stored",
@@ -349,6 +446,7 @@ export async function buildUiOverview(_rootDir: string): Promise<UiOverview> {
       dashboardUrl: endpoint.dashboardUrl,
       endpointLabel: endpoint.endpointLabel,
       policies,
+      policy: policyForSandbox(sandbox.name),
       messagingChannels,
       disabledChannels,
       channelStatuses: channelsForSandbox({
@@ -358,17 +456,9 @@ export async function buildUiOverview(_rootDir: string): Promise<UiOverview> {
         disabledChannels,
         overlaps: channelOverlaps,
       }),
-      warnings: warningsForSandbox({
-        agent: normalizedAgent,
-        dashboardPort,
-        gatewayHealth,
-        isDefault,
-        policies,
-        messagingChannels,
-        disabledChannels,
-      }),
-      version: versionForSandbox(sandbox.name),
-      snapshots: snapshotsForSandbox(sandbox.name),
+      warnings,
+      version,
+      snapshots,
       commands: commandsForSandbox(sandbox.name),
     };
   });
@@ -383,6 +473,7 @@ export async function buildUiOverview(_rootDir: string): Promise<UiOverview> {
     services: [],
     commands: {
       openApprovals: "openshell term",
+      inferenceGet: `${CLI_NAME} inference get`,
       updateCheck: `${CLI_NAME} update --check`,
       upgradeCheck: `${CLI_NAME} upgrade-sandboxes --check`,
     },

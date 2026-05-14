@@ -17,6 +17,7 @@ const overview: UiOverview = {
     {
       name: "alpha",
       agent: "openclaw",
+      phase: "ready",
       isDefault: true,
       connected: false,
       activeSessionCount: 0,
@@ -28,6 +29,28 @@ const overview: UiOverview = {
       dashboardUrl: "http://127.0.0.1:18789/",
       endpointLabel: "Dashboard",
       policies: ["npm"],
+      policy: {
+        registryApplied: ["npm"],
+        gatewayApplied: null,
+        liveState: "unchecked",
+        customPresetCommand: "nemoclaw alpha policy-add --from-file <path> --dry-run",
+        available: [
+          {
+            name: "npm",
+            description: "Node package registry access",
+            source: "built-in",
+            file: "npm.yaml",
+            appliedRegistry: true,
+            appliedGateway: null,
+            commands: {
+              addDryRun: "nemoclaw alpha policy-add npm --dry-run",
+              add: "nemoclaw alpha policy-add npm --yes",
+              removeDryRun: "nemoclaw alpha policy-remove npm --dry-run",
+              remove: "nemoclaw alpha policy-remove npm --yes",
+            },
+          },
+        ],
+      },
       messagingChannels: [],
       disabledChannels: [],
       channelStatuses: [
@@ -80,6 +103,17 @@ const overview: UiOverview = {
       },
       snapshots: {
         count: 1,
+        items: [
+          {
+            version: "v1",
+            selector: "v1",
+            name: "before-upgrade",
+            timestamp: "2026-05-14T11-00-00-000Z",
+            path: "/tmp/nemoclaw/rebuild-backups/alpha/2026-05-14T11-00-00-000Z",
+            restoreCommand: "nemoclaw alpha snapshot restore v1",
+            cloneCommand: "nemoclaw alpha snapshot restore v1 --to <sandbox>",
+          },
+        ],
         latest: {
           version: "v1",
           name: "before-upgrade",
@@ -96,13 +130,16 @@ const overview: UiOverview = {
         policyList: "nemoclaw alpha policy-list",
         channelsList: "nemoclaw alpha channels list",
         snapshotList: "nemoclaw alpha snapshot list",
+        shareStatus: "nemoclaw alpha share status",
         rebuild: "nemoclaw alpha rebuild",
+        inferenceSet: "nemoclaw inference set --sandbox alpha --provider <provider> --model <model>",
       },
     },
   ],
   services: [],
   commands: {
     openApprovals: "openshell term",
+    inferenceGet: "nemoclaw inference get",
     updateCheck: "nemoclaw update --check",
     upgradeCheck: "nemoclaw upgrade-sandboxes --check",
   },
@@ -242,6 +279,60 @@ describe("NemoClaw UI server", () => {
     );
     expect(arbitrary.status).toBe(404);
     expect(runCliAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs fixed global actions without accepting arbitrary commands", async () => {
+    const runCliAction = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 0,
+      stdout: "provider: nvidia-prod",
+      stderr: "",
+    });
+    const server = await startTestServer({ runCliAction });
+
+    const inference = await fetch(
+      `http://${server.host}:${server.port}/api/actions/inference-get?token=test-token`,
+      { method: "POST" },
+    );
+    expect(inference.status).toBe(200);
+    expect(runCliAction).toHaveBeenCalledWith(["inference", "get"]);
+
+    const arbitrary = await fetch(
+      `http://${server.host}:${server.port}/api/actions/destroy?token=test-token`,
+      { method: "POST" },
+    );
+    expect(arbitrary.status).toBe(404);
+    expect(runCliAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs fixed policy checks and preset mutations", async () => {
+    const runCliAction = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 0,
+      stdout: "policy output",
+      stderr: "",
+    });
+    const server = await startTestServer({ runCliAction });
+
+    const check = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/policies/check?token=test-token`,
+      { method: "POST" },
+    );
+    expect(check.status).toBe(200);
+    expect(runCliAction).toHaveBeenCalledWith(["alpha", "policy-list"]);
+
+    const add = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/policies/npm/add-dry-run?token=test-token`,
+      { method: "POST" },
+    );
+    expect(add.status).toBe(200);
+    expect(runCliAction).toHaveBeenCalledWith(["alpha", "policy-add", "npm", "--dry-run"]);
+
+    const invalid = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/policies/..%2Fbad/add?token=test-token`,
+      { method: "POST" },
+    );
+    expect(invalid.status).toBe(400);
   });
 
   it("runs a fixed channel check through doctor json", async () => {
@@ -396,6 +487,44 @@ describe("NemoClaw UI server", () => {
     expect(runCliAction).toHaveBeenCalledWith(["alpha", "status"]);
     expect(runCliAction).toHaveBeenCalledWith(["alpha", "doctor"]);
     expect(runCliAction).toHaveBeenCalledWith(["alpha", "snapshot", "list"]);
+  });
+
+  it("runs snapshot restore with selector and validated clone target", async () => {
+    const runCliAction = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 0,
+      stdout: "restored",
+      stderr: "",
+    });
+    const server = await startTestServer({ runCliAction });
+
+    const restore = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/snapshot/restore?token=test-token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selector: "v1", to: "bravo" }),
+      },
+    );
+    expect(restore.status).toBe(200);
+    expect(runCliAction).toHaveBeenCalledWith([
+      "alpha",
+      "snapshot",
+      "restore",
+      "v1",
+      "--to",
+      "bravo",
+    ]);
+
+    const invalid = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/snapshot/restore?token=test-token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selector: "v1", to: "../bad" }),
+      },
+    );
+    expect(invalid.status).toBe(400);
   });
 
   it("marks rebuild preflight incomplete when no snapshot is recorded", async () => {

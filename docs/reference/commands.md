@@ -870,8 +870,9 @@ For a remote Brev instance, SSH to the instance and run `openshell term` there, 
 
 Start the local NemoClaw control UI.
 The UI binds to `127.0.0.1`, generates a random session token, and opens a browser to the tokenized local URL.
-It provides a compact sandbox overview, health details, cached version readiness, a live dashboard/API forward probe, log streaming, policy and channel status with safe checks and fixed test-message sends, snapshot and rebuild guardrails, dashboard links, and safe status, doctor, snapshot, preflight, and forward-repair actions.
+It provides a compact sandbox overview, health details, cached version readiness, a live dashboard/API forward probe, filtered log streaming, policy preset previews and mutations, channel status with safe checks and fixed test-message sends, snapshot create/restore guardrails, dashboard links, share status, and safe status, doctor, preflight, global check, and forward-repair actions.
 The UI does not run destructive rebuilds; it only copies the rebuild command after the operator reviews the guardrails.
+Snapshot restores and policy mutations require browser confirmation before the UI sends the fixed command.
 Live network approvals remain owned by the OpenShell TUI; run `openshell term` for approval prompts.
 
 ```console

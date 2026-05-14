@@ -4,6 +4,7 @@
 export interface UiSandboxSummary {
   name: string;
   agent: string;
+  phase: string;
   isDefault: boolean;
   connected: boolean;
   activeSessionCount: number | null;
@@ -15,6 +16,7 @@ export interface UiSandboxSummary {
   dashboardUrl: string | null;
   endpointLabel: string;
   policies: string[];
+  policy: UiPolicySummary;
   messagingChannels: string[];
   disabledChannels: string[];
   channelStatuses: UiChannelSummary[];
@@ -30,7 +32,9 @@ export interface UiSandboxSummary {
     policyList: string;
     channelsList: string;
     snapshotList: string;
+    shareStatus: string;
     rebuild: string;
+    inferenceSet: string;
   };
 }
 
@@ -55,6 +59,7 @@ export interface UiOverview {
   }>;
   commands: {
     openApprovals: string;
+    inferenceGet: string;
     updateCheck: string;
     upgradeCheck: string;
   };
@@ -132,8 +137,40 @@ export interface UiChannelTestResult {
   error?: string;
 }
 
+export interface UiPolicySummary {
+  registryApplied: string[];
+  gatewayApplied: string[] | null;
+  liveState: "unchecked" | "matched" | "drift" | "unavailable";
+  available: UiPolicyPresetSummary[];
+  customPresetCommand: string;
+}
+
+export interface UiPolicyPresetSummary {
+  name: string;
+  description: string;
+  source: "built-in" | "custom";
+  file: string;
+  appliedRegistry: boolean;
+  appliedGateway: boolean | null;
+  commands: {
+    addDryRun: string;
+    add: string;
+    removeDryRun: string;
+    remove: string;
+  };
+}
+
 export interface UiSnapshotSummary {
   count: number;
+  items: Array<{
+    version: string;
+    selector: string;
+    name: string | null;
+    timestamp: string;
+    path: string;
+    restoreCommand: string;
+    cloneCommand: string;
+  }>;
   latest: {
     version: string;
     name: string | null;

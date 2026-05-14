@@ -146,12 +146,14 @@ export const UI_HTML = String.raw`<!doctype html>
       table-layout: fixed;
     }
 
-    .sandbox-table th:nth-child(1), .sandbox-table td:nth-child(1) { width: 20%; }
-    .sandbox-table th:nth-child(2), .sandbox-table td:nth-child(2) { width: 19%; }
-    .sandbox-table th:nth-child(3), .sandbox-table td:nth-child(3) { width: 12%; }
-    .sandbox-table th:nth-child(4), .sandbox-table td:nth-child(4) { width: 25%; }
-    .sandbox-table th:nth-child(5), .sandbox-table td:nth-child(5) { width: 12%; }
-    .sandbox-table th:nth-child(6), .sandbox-table td:nth-child(6) { width: 12%; }
+    .sandbox-table th:nth-child(1), .sandbox-table td:nth-child(1) { width: 18%; }
+    .sandbox-table th:nth-child(2), .sandbox-table td:nth-child(2) { width: 12%; }
+    .sandbox-table th:nth-child(3), .sandbox-table td:nth-child(3) { width: 18%; }
+    .sandbox-table th:nth-child(4), .sandbox-table td:nth-child(4) { width: 9%; }
+    .sandbox-table th:nth-child(5), .sandbox-table td:nth-child(5) { width: 8%; }
+    .sandbox-table th:nth-child(6), .sandbox-table td:nth-child(6) { width: 15%; }
+    .sandbox-table th:nth-child(7), .sandbox-table td:nth-child(7) { width: 12%; }
+    .sandbox-table th:nth-child(8), .sandbox-table td:nth-child(8) { width: 8%; }
 
     th, td {
       min-width: 0;
@@ -316,6 +318,35 @@ export const UI_HTML = String.raw`<!doctype html>
       gap: 12px;
     }
 
+    .item-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .item-row {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .item-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .tool-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
     .channel-description {
       margin: -2px 0 0;
       color: var(--muted);
@@ -409,10 +440,10 @@ export const UI_HTML = String.raw`<!doctype html>
       main { grid-template-columns: 1fr; }
       .detail { min-height: auto; }
       .wide-only { display: none; }
-      .sandbox-table th:nth-child(1), .sandbox-table td:nth-child(1) { width: 36%; }
-      .sandbox-table th:nth-child(2), .sandbox-table td:nth-child(2) { width: 30%; }
-      .sandbox-table th:nth-child(5), .sandbox-table td:nth-child(5) { width: 18%; }
-      .sandbox-table th:nth-child(6), .sandbox-table td:nth-child(6) { width: 16%; }
+      .sandbox-table th:nth-child(1), .sandbox-table td:nth-child(1) { width: 32%; }
+      .sandbox-table th:nth-child(2), .sandbox-table td:nth-child(2) { width: 20%; }
+      .sandbox-table th:nth-child(3), .sandbox-table td:nth-child(3) { width: 28%; }
+      .sandbox-table th:nth-child(8), .sandbox-table td:nth-child(8) { width: 20%; }
       .sandbox-table th, .sandbox-table td { padding: 8px 6px; }
       .sandbox-table a { overflow-wrap: anywhere; }
     }
@@ -433,6 +464,7 @@ export const UI_HTML = String.raw`<!doctype html>
         <span id="updated" class="muted mono"></span>
       </div>
       <div id="summary" class="summary"></div>
+      <div id="global-output"></div>
       <div id="sandboxes"></div>
     </section>
 
@@ -517,8 +549,22 @@ export const UI_HTML = String.raw`<!doctype html>
           parts.push(chip("model " + overview.liveInference.model, ""));
         }
         parts.push(chip(overview.commands.openApprovals, "warn"));
+        parts.push('<button data-global-action="inference-get">Inference</button>');
+        parts.push('<button data-global-action="upgrade-check">Upgrade check</button>');
         $("summary").innerHTML = parts.join("");
         $("updated").textContent = overview.generatedAt ? new Date(overview.generatedAt).toLocaleTimeString() : "";
+        renderGlobalOutput();
+      }
+
+      function renderGlobalOutput() {
+        var target = $("global-output");
+        if (!target) return;
+        var entry = commandOutputByName.__global;
+        if (!entry) {
+          target.innerHTML = "";
+          return;
+        }
+        target.innerHTML = renderCommandOutput({ name: "__global" });
       }
 
       function renderSandboxTable() {
@@ -529,15 +575,19 @@ export const UI_HTML = String.raw`<!doctype html>
         var rows = overview.sandboxes.map(function (sandbox) {
           var warn = sandbox.warnings.length > 0 ? chip(sandbox.warnings.length + " warning" + (sandbox.warnings.length === 1 ? "" : "s"), "warn") : chip("ok", "good");
           var connected = sandbox.connected ? chip((sandbox.activeSessionCount || 1) + " connected", "good") : chip("idle", "");
+          var port = sandbox.dashboardPort == null ? "none" : String(sandbox.dashboardPort);
+          var policyCount = sandbox.policy && sandbox.policy.registryApplied ? sandbox.policy.registryApplied.length : sandbox.policies.length;
           var endpoint = sandbox.dashboardUrl
             ? '<a href="' + esc(sandbox.dashboardUrl) + '" target="_blank" rel="noreferrer">' + esc(sandbox.endpointLabel) + '</a>'
             : '<span class="muted">none</span>';
           return [
             '<tr class="sandbox-row" data-name="' + esc(sandbox.name) + '" data-selected="' + String(sandbox.name === selectedName) + '">',
             '<td><div class="name-cell"><div class="name-line"><span class="truncate">' + esc(sandbox.name) + '</span>' + (sandbox.isDefault ? chip("default", "good") : "") + '</div><span class="muted">' + esc(sandbox.agent) + '</span></div></td>',
+            '<td>' + chip(sandbox.phase || "registered", sandbox.phase === "ready" || sandbox.phase === "connected" ? "good" : sandbox.phase === "attention" || sandbox.phase === "rebuild ready" ? "warn" : "") + '</td>',
             '<td><div class="truncate">' + esc(sandbox.model || "unknown") + '</div><div class="muted truncate">' + esc(sandbox.provider || "unknown") + '</div></td>',
             '<td class="wide-only">' + connected + '</td>',
-            '<td class="wide-only"><span class="wrap-text">' + esc(sandbox.policies.length ? sandbox.policies.join(", ") : "none") + '</span></td>',
+            '<td class="wide-only">' + esc(port) + '</td>',
+            '<td class="wide-only"><span class="wrap-text">' + esc(policyCount ? sandbox.policies.join(", ") : "none") + '</span></td>',
             '<td>' + endpoint + '</td>',
             '<td class="state-cell">' + warn + '</td>',
             '</tr>'
@@ -545,7 +595,7 @@ export const UI_HTML = String.raw`<!doctype html>
         }).join("");
         $("sandboxes").innerHTML = [
           '<table class="sandbox-table">',
-          '<thead><tr><th>Sandbox</th><th>Inference</th><th class="wide-only">Session</th><th class="wide-only">Policy</th><th>Endpoint</th><th>State</th></tr></thead>',
+          '<thead><tr><th>Sandbox</th><th>Phase</th><th>Inference</th><th class="wide-only">Session</th><th class="wide-only">Port</th><th class="wide-only">Policy</th><th>Endpoint</th><th>State</th></tr></thead>',
           '<tbody>' + rows + '</tbody>',
           '</table>'
         ].join("");
@@ -776,11 +826,13 @@ export const UI_HTML = String.raw`<!doctype html>
         return [
           '<div class="kv">',
           '<div>Agent</div><div>' + esc(sandbox.agent) + '</div>',
+          '<div>Phase</div><div>' + esc(sandbox.phase || "registered") + '</div>',
           '<div>Model</div><div class="truncate">' + esc(sandbox.model || "unknown") + '</div>',
           '<div>Provider</div><div class="truncate">' + esc(sandbox.provider || "unknown") + '</div>',
           '<div>Gateway</div><div>' + esc(sandbox.gatewayHealth) + '</div>',
           '<div>Inference</div><div>' + esc(sandbox.inferenceHealth) + '</div>',
           '<div>Connected</div><div>' + esc(sandbox.connected ? String(sandbox.activeSessionCount || 1) : "no") + '</div>',
+          '<div>Port</div><div>' + esc(sandbox.dashboardPort == null ? "none" : String(sandbox.dashboardPort)) + '</div>',
           '<div>Endpoint</div><div>' + (sandbox.dashboardUrl ? '<a href="' + esc(sandbox.dashboardUrl) + '" target="_blank" rel="noreferrer">' + esc(sandbox.dashboardUrl) + '</a>' : '<span class="muted">none</span>') + '</div>',
           '</div>',
           warnings,
@@ -789,6 +841,8 @@ export const UI_HTML = String.raw`<!doctype html>
           '<div class="actions">',
           '<button data-copy="' + esc(sandbox.commands.status) + '">Copy status command</button>',
           '<button data-copy="' + esc(sandbox.commands.doctor) + '">Copy doctor command</button>',
+          '<button data-sandbox-action="share-status">Share status</button>',
+          '<button data-copy="' + esc(sandbox.commands.inferenceSet) + '">Copy inference set</button>',
           '</div>',
           renderCommands(sandbox)
         ].join("");
@@ -802,15 +856,47 @@ export const UI_HTML = String.raw`<!doctype html>
       }
 
       function renderPolicy(sandbox) {
+        var policy = sandbox.policy || { available: [], registryApplied: sandbox.policies || [], gatewayApplied: null, liveState: "unchecked" };
+        var rows = policy.available && policy.available.length
+          ? policy.available.map(function (preset) {
+            var state = preset.appliedRegistry
+              ? preset.appliedGateway === false
+                ? "registry only"
+                : "applied"
+              : preset.appliedGateway
+                ? "gateway only"
+                : "not applied";
+            var kind = state === "applied" ? "good" : state.indexOf("only") !== -1 ? "warn" : "";
+            return [
+              '<div class="item-row">',
+              '<div class="item-title"><strong class="truncate">' + esc(preset.name) + '</strong>' + chip(state, kind) + '</div>',
+              '<div class="muted wrap-text">' + esc(preset.description || preset.source || "") + '</div>',
+              '<div class="muted mono wrap-text">' + esc(preset.file || "") + '</div>',
+              '<div class="actions health-actions">',
+              '<button data-policy-action="add-dry-run" data-policy-preset="' + esc(preset.name) + '">Preview add</button>',
+              '<button data-policy-action="add" data-policy-preset="' + esc(preset.name) + '"' + (preset.appliedRegistry ? " disabled" : "") + '>Add</button>',
+              '<button data-policy-action="remove-dry-run" data-policy-preset="' + esc(preset.name) + '"' + (!preset.appliedRegistry ? " disabled" : "") + '>Preview remove</button>',
+              '<button class="danger" data-policy-action="remove" data-policy-preset="' + esc(preset.name) + '"' + (!preset.appliedRegistry ? " disabled" : "") + '>Remove</button>',
+              '</div>',
+              '</div>'
+            ].join("");
+          }).join("")
+          : '<div class="empty">No policy presets found.</div>';
         return [
           '<div class="kv">',
-          '<div>Applied</div><div><span class="wrap-text">' + esc(sandbox.policies.length ? sandbox.policies.join(", ") : "none") + '</span></div>',
+          '<div>Registry</div><div><span class="wrap-text">' + esc(policy.registryApplied.length ? policy.registryApplied.join(", ") : "none") + '</span></div>',
+          '<div>Live state</div><div>' + esc(policy.liveState || "unchecked") + '</div>',
           '<div>Live approvals</div><div><code class="mono">' + esc(overview.commands.openApprovals) + '</code></div>',
+          '<div>Custom preset</div><div><code class="mono wrap-text">' + esc(policy.customPresetCommand || "") + '</code></div>',
           '</div>',
           '<div class="actions">',
+          '<button id="check-policy-live">Check live policy</button>',
           '<button data-copy="' + esc(sandbox.commands.policyList) + '">Copy policy-list</button>',
           '<button data-copy="' + esc(overview.commands.openApprovals) + '">Copy approvals command</button>',
-          '</div>'
+          '<button data-copy="' + esc(policy.customPresetCommand || "") + '">Copy custom preset command</button>',
+          '</div>',
+          '<div class="item-list">' + rows + '</div>',
+          renderCommandOutput(sandbox)
         ].join("");
       }
 
@@ -873,7 +959,7 @@ export const UI_HTML = String.raw`<!doctype html>
       }
 
       function renderSnapshots(sandbox) {
-        var snapshots = sandbox.snapshots || { count: 0, latest: null };
+        var snapshots = sandbox.snapshots || { count: 0, latest: null, items: [] };
         var version = sandbox.version || null;
         var snapshotChip = snapshots.error
           ? chip("scan failed", "bad")
@@ -894,6 +980,23 @@ export const UI_HTML = String.raw`<!doctype html>
             : snapshots.count > 0
               ? "Run preflight before any manual rebuild."
               : "Create a snapshot before any manual rebuild.";
+        var list = snapshots.items && snapshots.items.length
+          ? snapshots.items.map(function (snapshot) {
+            var title = snapshot.version + (snapshot.name ? " " + snapshot.name : "");
+            return [
+              '<div class="item-row">',
+              '<div class="item-title"><strong class="truncate">' + esc(title) + '</strong>' + chip(snapshot.timestamp, "") + '</div>',
+              '<div class="muted wrap-text">' + esc(snapshot.path) + '</div>',
+              '<div class="actions health-actions">',
+              '<button data-snapshot-restore="' + esc(snapshot.selector) + '">Restore</button>',
+              '<button data-snapshot-clone="' + esc(snapshot.selector) + '">Clone to...</button>',
+              '<button data-copy="' + esc(snapshot.restoreCommand) + '">Copy restore</button>',
+              '<button data-copy="' + esc(snapshot.cloneCommand) + '">Copy clone</button>',
+              '</div>',
+              '</div>'
+            ].join("");
+          }).join("")
+          : '<div class="empty">No snapshots recorded.</div>';
         return [
           '<div class="health-card">',
           '<div class="health-head"><strong>Rebuild Guard</strong>' + snapshotChip + '</div>',
@@ -911,6 +1014,7 @@ export const UI_HTML = String.raw`<!doctype html>
           '</div>',
           renderCommandOutput(sandbox),
           '</div>',
+          '<div class="item-list">' + list + '</div>',
           '<div class="actions">',
           '<button data-copy="' + esc(sandbox.commands.snapshotList) + '">Copy snapshot list</button>',
           '<button data-copy="' + esc("nemoclaw " + sandbox.name + " snapshot create --name before-change") + '">Copy create snapshot</button>',
@@ -922,9 +1026,19 @@ export const UI_HTML = String.raw`<!doctype html>
       function renderLogs(sandbox) {
         return [
           '<div class="log-tools">',
+          '<select id="log-tail" aria-label="Tail length">',
+          '<option value="100">100</option>',
+          '<option value="200" selected>200</option>',
+          '<option value="500">500</option>',
+          '<option value="1000">1000</option>',
+          '</select>',
           '<input id="log-filter" placeholder="Filter logs" value="">',
           '<button id="start-logs" class="primary">Start</button>',
           '<button id="stop-logs">Stop</button>',
+          '<button data-log-filter="policy|denied|blocked">Policy</button>',
+          '<button data-log-filter="gateway|error|failed">Gateway</button>',
+          '<button data-log-filter="inference|provider|model">Inference</button>',
+          '<button data-log-filter="messaging|telegram|discord|slack|conflict">Messaging</button>',
           '</div>',
           '<pre id="log-output" class="log">' + esc(logLines.join("\n")) + '</pre>'
         ].join("");
@@ -962,6 +1076,22 @@ export const UI_HTML = String.raw`<!doctype html>
           .finally(function () { renderDetail(); });
       }
 
+      function runGlobalAction(action, title) {
+        commandOutputByName.__global = { title: title, pending: true };
+        renderGlobalOutput();
+        authFetch("/api/actions/" + encodeURIComponent(action), { method: "POST" })
+          .then(function (result) {
+            commandOutputByName.__global = { title: title, result: result };
+          })
+          .catch(function (err) {
+            commandOutputByName.__global = { title: title, result: { ok: false, status: null, stdout: "", stderr: err.message } };
+          })
+          .finally(function () {
+            renderGlobalOutput();
+            load().catch(function () {});
+          });
+      }
+
       function repairForward(sandbox) {
         commandOutputByName[sandbox.name] = { title: "Repair Forward", pending: true };
         renderDetail();
@@ -991,6 +1121,58 @@ export const UI_HTML = String.raw`<!doctype html>
             commandOutputByName[sandbox.name] = { title: "Create Snapshot", result: { ok: false, status: null, stdout: "", stderr: err.message } };
             renderDetail();
           });
+      }
+
+      function runPolicyAction(sandbox, preset, action) {
+        var title = "Policy " + action.replace("-", " ") + " " + preset;
+        if ((action === "add" || action === "remove") && !window.confirm("Run " + title + " for " + sandbox.name + "?")) return;
+        commandOutputByName[sandbox.name] = { title: title, pending: true };
+        renderDetail();
+        authFetch(
+          "/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/policies/" + encodeURIComponent(preset) + "/" + encodeURIComponent(action),
+          { method: "POST" }
+        )
+          .then(function (result) {
+            commandOutputByName[sandbox.name] = { title: title, result: result };
+            load().catch(function () {});
+          })
+          .catch(function (err) {
+            commandOutputByName[sandbox.name] = { title: title, result: { ok: false, status: null, stdout: "", stderr: err.message } };
+          })
+          .finally(function () { renderDetail(); });
+      }
+
+      function checkPolicyLive(sandbox) {
+        commandOutputByName[sandbox.name] = { title: "Policy List", pending: true };
+        renderDetail();
+        authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/policies/check", { method: "POST" })
+          .then(function (result) {
+            commandOutputByName[sandbox.name] = { title: "Policy List", result: result };
+          })
+          .catch(function (err) {
+            commandOutputByName[sandbox.name] = { title: "Policy List", result: { ok: false, status: null, stdout: "", stderr: err.message } };
+          })
+          .finally(function () { renderDetail(); });
+      }
+
+      function restoreSnapshot(sandbox, selector, targetSandbox) {
+        var cloneText = targetSandbox ? " into " + targetSandbox : "";
+        if (!window.confirm("Restore snapshot " + selector + cloneText + "?")) return;
+        commandOutputByName[sandbox.name] = { title: "Restore Snapshot", pending: true };
+        renderDetail();
+        authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/snapshot/restore", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(targetSandbox ? { selector: selector, to: targetSandbox } : { selector: selector })
+        })
+          .then(function (result) {
+            commandOutputByName[sandbox.name] = { title: "Restore Snapshot", result: result };
+            load().catch(function () {});
+          })
+          .catch(function (err) {
+            commandOutputByName[sandbox.name] = { title: "Restore Snapshot", result: { ok: false, status: null, stdout: "", stderr: err.message } };
+          })
+          .finally(function () { renderDetail(); });
       }
 
       function runChannelCheck(sandbox, channelName) {
@@ -1070,14 +1252,38 @@ export const UI_HTML = String.raw`<!doctype html>
             runChannelTest(sandbox, button.getAttribute("data-channel-test") || "");
           });
         });
+        Array.prototype.forEach.call(document.querySelectorAll("[data-policy-action]"), function (button) {
+          button.addEventListener("click", function () {
+            runPolicyAction(sandbox, button.getAttribute("data-policy-preset") || "", button.getAttribute("data-policy-action") || "");
+          });
+        });
+        Array.prototype.forEach.call(document.querySelectorAll("[data-snapshot-restore]"), function (button) {
+          button.addEventListener("click", function () {
+            restoreSnapshot(sandbox, button.getAttribute("data-snapshot-restore") || "", null);
+          });
+        });
+        Array.prototype.forEach.call(document.querySelectorAll("[data-snapshot-clone]"), function (button) {
+          button.addEventListener("click", function () {
+            var target = window.prompt("Clone snapshot to sandbox name");
+            if (target) restoreSnapshot(sandbox, button.getAttribute("data-snapshot-clone") || "", target);
+          });
+        });
         var checkLive = $("check-live");
         if (checkLive) checkLive.addEventListener("click", function () { loadLiveHealth(sandbox.name); });
+        var checkPolicy = $("check-policy-live");
+        if (checkPolicy) checkPolicy.addEventListener("click", function () { checkPolicyLive(sandbox); });
         var repair = $("repair-forward");
         if (repair) repair.addEventListener("click", function () { repairForward(sandbox); });
         var runStatus = $("run-status");
         if (runStatus) runStatus.addEventListener("click", function () { runSandboxAction(sandbox, "status", "Status"); });
         var runDoctor = $("run-doctor");
         if (runDoctor) runDoctor.addEventListener("click", function () { runSandboxAction(sandbox, "doctor", "Doctor"); });
+        Array.prototype.forEach.call(document.querySelectorAll("[data-sandbox-action]"), function (button) {
+          button.addEventListener("click", function () {
+            var action = button.getAttribute("data-sandbox-action") || "";
+            runSandboxAction(sandbox, action, action.replace("-", " "));
+          });
+        });
         var rebuildPreflight = $("rebuild-preflight");
         if (rebuildPreflight) rebuildPreflight.addEventListener("click", function () { runSandboxAction(sandbox, "rebuild-preflight", "Rebuild Preflight"); });
         var snapshotList = $("run-snapshot-list");
@@ -1092,6 +1298,14 @@ export const UI_HTML = String.raw`<!doctype html>
         if (stopLogs) {
           stopLogs.addEventListener("click", function () { window.stopLogs(); });
         }
+        Array.prototype.forEach.call(document.querySelectorAll("[data-log-filter]"), function (button) {
+          button.addEventListener("click", function () {
+            var filterInput = $("log-filter");
+            if (!filterInput) return;
+            filterInput.value = button.getAttribute("data-log-filter") || "";
+            renderLogOutput(filterInput.value);
+          });
+        });
         var filter = $("log-filter");
         if (filter) {
           filter.addEventListener("input", function () { renderLogOutput(filter.value); });
@@ -1134,7 +1348,11 @@ export const UI_HTML = String.raw`<!doctype html>
         var output = $("log-output");
         if (!output) return;
         var needle = String(filter || "").toLowerCase();
-        var visible = needle ? logLines.filter(function (line) { return line.toLowerCase().indexOf(needle) !== -1; }) : logLines;
+        var terms = needle.split("|").map(function (term) { return term.trim(); }).filter(Boolean);
+        var visible = terms.length ? logLines.filter(function (line) {
+          var lower = line.toLowerCase();
+          return terms.some(function (term) { return lower.indexOf(term) !== -1; });
+        }) : logLines;
         output.textContent = visible.join("\n");
         output.scrollTop = output.scrollHeight;
       }
@@ -1143,7 +1361,8 @@ export const UI_HTML = String.raw`<!doctype html>
         stopLogs();
         logLines = [];
         renderLogOutput("");
-        eventSource = new EventSource("/api/sandboxes/" + encodeURIComponent(name) + "/logs/stream?token=" + encodeURIComponent(token));
+        var tail = $("log-tail") ? $("log-tail").value : "200";
+        eventSource = new EventSource("/api/sandboxes/" + encodeURIComponent(name) + "/logs/stream?token=" + encodeURIComponent(token) + "&tail=" + encodeURIComponent(tail));
         eventSource.addEventListener("line", function (event) {
           var item = JSON.parse(event.data);
           logLines.push("[" + item.source + "] " + item.line);
@@ -1184,8 +1403,18 @@ export const UI_HTML = String.raw`<!doctype html>
         });
       }
 
+      function bindGlobalActions() {
+        Array.prototype.forEach.call(document.querySelectorAll("[data-global-action]"), function (button) {
+          button.addEventListener("click", function () {
+            var action = button.getAttribute("data-global-action") || "";
+            runGlobalAction(action, action.replace("-", " "));
+          });
+        });
+      }
+
       function renderAll() {
         renderSummary();
+        bindGlobalActions();
         renderSandboxTable();
         renderDetail();
         renderTabs();

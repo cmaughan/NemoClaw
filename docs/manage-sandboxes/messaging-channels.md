@@ -175,6 +175,7 @@ The local `nemoclaw ui` Channels tab can also run a fixed test-message send when
 The UI sends only a generated NemoClaw test string and never returns token values in responses.
 Because NemoClaw stores channel credentials in the OpenShell gateway rather than on disk, the test send requires the matching token environment variable to be available to the UI process, such as `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`, or `SLACK_BOT_TOKEN`.
 If the UI process cannot read the token, paste it into the per-channel temporary token field; the token is used for that one request and is not saved.
+The same tab also shows whether the matching policy preset is applied and whether another sandbox appears to share the same channel credential.
 
 ## Tunnel Command
 

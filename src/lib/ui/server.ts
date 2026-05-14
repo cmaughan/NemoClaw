@@ -30,6 +30,7 @@ const COMMAND_TIMEOUT_MS = 120_000;
 const FORWARD_PROBE_TIMEOUT_MS = 2_500;
 const PREFLIGHT_OUTPUT_LIMIT = 6_000;
 const DEFAULT_ROOT = path.resolve(__dirname, "..", "..", "..");
+const POLICY_ACTIONS = new Set(["add-dry-run", "add", "remove-dry-run", "remove"]);
 type LogChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 export interface UiServerOptions {
@@ -174,6 +175,16 @@ function validateSandboxName(name: string): string {
   }
   if (!/^[a-z]([a-z0-9-]*[a-z0-9])?$/.test(name)) {
     throw new Error(`Invalid sandbox name: '${name}'. Allowed format: ${NAME_ALLOWED_FORMAT}.`);
+  }
+  return name;
+}
+
+function validatePresetName(name: string): string {
+  if (!name || typeof name !== "string" || name.length > 63) {
+    throw new Error("Invalid policy preset name.");
+  }
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)) {
+    throw new Error("Invalid policy preset name.");
   }
   return name;
 }
@@ -668,6 +679,32 @@ function oneShotTokenFromBody(body: unknown): string | null {
   return normalized.length > 0 && normalized.length <= 4096 ? normalized : null;
 }
 
+function bodyString(body: unknown, key: string): string | null {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
+  const raw = (body as Record<string, unknown>)[key];
+  if (typeof raw !== "string") return null;
+  const normalized = raw.replace(/\r/g, "").trim();
+  return normalized.length > 0 && normalized.length <= 256 ? normalized : null;
+}
+
+function restoreSnapshotArgs(sandboxName: string, body: unknown): string[] {
+  const selector = bodyString(body, "selector");
+  const to = bodyString(body, "to");
+  const args = [sandboxName, "snapshot", "restore"];
+  if (selector) args.push(selector);
+  if (to) args.push("--to", validateSandboxName(to));
+  return args;
+}
+
+function policyMutationArgs(sandboxName: string, presetName: string, action: string): string[] {
+  const preset = validatePresetName(presetName);
+  if (!POLICY_ACTIONS.has(action)) throw new Error("Unsupported policy action.");
+  if (action === "add-dry-run") return [sandboxName, "policy-add", preset, "--dry-run"];
+  if (action === "add") return [sandboxName, "policy-add", preset, "--yes"];
+  if (action === "remove-dry-run") return [sandboxName, "policy-remove", preset, "--dry-run"];
+  return [sandboxName, "policy-remove", preset, "--yes"];
+}
+
 async function handleApiRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -693,6 +730,25 @@ async function handleApiRequest(
 
   if (req.method === "GET" && parts.length === 2 && parts[0] === "api" && parts[1] === "overview") {
     sendJson(res, 200, await opts.overviewProvider());
+    return;
+  }
+
+  if (parts[0] === "api" && parts[1] === "actions" && req.method === "POST" && parts.length === 3) {
+    await readJsonBody(req);
+    const action = parts[2];
+    if (action === "inference-get") {
+      sendJson(res, 200, await opts.runCliAction(["inference", "get"]));
+      return;
+    }
+    if (action === "upgrade-check") {
+      sendJson(res, 200, await opts.runCliAction(["upgrade-sandboxes", "--check"]));
+      return;
+    }
+    if (action === "update-check") {
+      sendJson(res, 200, await opts.runCliAction(["update", "--check"]));
+      return;
+    }
+    sendJson(res, 404, { error: "Unsupported global action." });
     return;
   }
 
@@ -758,6 +814,52 @@ async function handleApiRequest(
 
     if (
       req.method === "POST" &&
+      parts.length === 5 &&
+      parts[3] === "policies" &&
+      parts[4] === "check"
+    ) {
+      if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
+      await readJsonBody(req);
+      sendJson(res, 200, await opts.runCliAction([sandboxName, "policy-list"]));
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
+      parts.length === 6 &&
+      parts[3] === "policies" &&
+      typeof parts[4] === "string" &&
+      typeof parts[5] === "string"
+    ) {
+      if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
+      await readJsonBody(req);
+      try {
+        const args = policyMutationArgs(sandboxName, parts[4], parts[5]);
+        sendJson(res, 200, await opts.runCliAction(args));
+      } catch (error) {
+        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
+      parts.length === 5 &&
+      parts[3] === "snapshot" &&
+      parts[4] === "restore"
+    ) {
+      if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
+      const body = await readJsonBody(req);
+      try {
+        sendJson(res, 200, await opts.runCliAction(restoreSnapshotArgs(sandboxName, body)));
+      } catch (error) {
+        sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
       parts.length === 6 &&
       parts[3] === "channels" &&
       typeof parts[4] === "string" &&
@@ -789,6 +891,7 @@ async function handleApiRequest(
       if (
         action !== "status" &&
         action !== "doctor" &&
+        action !== "share-status" &&
         action !== "snapshot-list" &&
         action !== "snapshot-create" &&
         action !== "rebuild-preflight"
@@ -809,6 +912,11 @@ async function handleApiRequest(
           "--name",
           preflightSnapshotName(),
         ]);
+        sendJson(res, 200, result);
+        return;
+      }
+      if (action === "share-status") {
+        const result = await opts.runCliAction([sandboxName, "share", "status"]);
         sendJson(res, 200, result);
         return;
       }
