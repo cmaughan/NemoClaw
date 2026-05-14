@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { execFile, spawn, type ChildProcessByStdio } from "node:child_process";
+import { type ChildProcessByStdio, execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import type { Readable } from "node:stream";
 import path from "node:path";
+import type { Readable } from "node:stream";
 
 import { CLI_NAME } from "../cli/branding";
 import { isErrnoException } from "../core/errno";
@@ -13,10 +13,11 @@ import { NAME_ALLOWED_FORMAT } from "../name-validation";
 import { redactFull } from "../security/redact";
 import * as registry from "../state/registry";
 import { UI_HTML } from "./assets";
-import type { UiCommandResult, UiOverview } from "./model";
+import type { UiCommandResult, UiForwardStatus, UiLiveHealth, UiOverview, UiSandboxSummary } from "./model";
 
 const JSON_BODY_LIMIT_BYTES = 16 * 1024;
 const COMMAND_TIMEOUT_MS = 120_000;
+const FORWARD_PROBE_TIMEOUT_MS = 2_500;
 const DEFAULT_ROOT = path.resolve(__dirname, "..", "..", "..");
 type LogChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 
@@ -29,6 +30,7 @@ export interface UiServerOptions {
   overviewProvider?: () => Promise<UiOverview>;
   sandboxExists?: (sandboxName: string) => boolean;
   runCliAction?: (args: string[]) => Promise<UiCommandResult>;
+  probeForward?: (sandbox: UiSandboxSummary) => Promise<UiForwardStatus>;
   spawnLogProcess?: (sandboxName: string, options: { tail: number }) => LogChildProcess;
 }
 
@@ -212,6 +214,139 @@ export function spawnLogProcess(
   );
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === "127.0.0.1" || normalized === "localhost" || normalized === "::1" || normalized === "[::1]";
+}
+
+function safeForwardProbeUrl(sandbox: UiSandboxSummary): URL | null {
+  if (!sandbox.dashboardUrl) return null;
+  try {
+    const url = new URL(sandbox.dashboardUrl);
+    if (url.protocol !== "http:" || !isLoopbackHost(url.hostname)) return null;
+    if (sandbox.dashboardPort !== null && Number.parseInt(url.port, 10) !== sandbox.dashboardPort) {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+export async function probeForward(sandbox: UiSandboxSummary): Promise<UiForwardStatus> {
+  const checkedAt = new Date().toISOString();
+  const port =
+    typeof sandbox.dashboardPort === "number" && Number.isFinite(sandbox.dashboardPort)
+      ? sandbox.dashboardPort
+      : null;
+
+  if (port === null || !sandbox.dashboardUrl) {
+    return {
+      configured: false,
+      healthy: false,
+      state: "not_configured",
+      port,
+      url: sandbox.dashboardUrl,
+      httpStatus: null,
+      checkedAt,
+    };
+  }
+
+  const url = safeForwardProbeUrl(sandbox);
+  if (!url) {
+    return {
+      configured: true,
+      healthy: false,
+      state: "invalid",
+      port,
+      url: sandbox.dashboardUrl,
+      httpStatus: null,
+      checkedAt,
+      error: "Recorded endpoint is not a local HTTP URL for the registered port.",
+    };
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "manual",
+      signal: AbortSignal.timeout(FORWARD_PROBE_TIMEOUT_MS),
+    });
+    return {
+      configured: true,
+      healthy: true,
+      state: "healthy",
+      port,
+      url: sandbox.dashboardUrl,
+      httpStatus: response.status,
+      checkedAt,
+    };
+  } catch (error) {
+    return {
+      configured: true,
+      healthy: false,
+      state: "unreachable",
+      port,
+      url: sandbox.dashboardUrl,
+      httpStatus: null,
+      checkedAt,
+      error: redactFull(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
+function liveHealthForSandbox(sandbox: UiSandboxSummary, forward: UiForwardStatus): UiLiveHealth {
+  if (forward.healthy) {
+    return {
+      sandbox: sandbox.name,
+      forward,
+      suggestedAction: {
+        severity: "ok",
+        label: "Forward reachable",
+        detail: `${sandbox.endpointLabel} responded${forward.httpStatus ? ` with HTTP ${forward.httpStatus}` : ""}.`,
+        command: null,
+      },
+    };
+  }
+
+  if (forward.state === "not_configured") {
+    return {
+      sandbox: sandbox.name,
+      forward,
+      suggestedAction: {
+        severity: "warn",
+        label: "Confirm sandbox metadata",
+        detail: "No dashboard/API port is recorded for this sandbox.",
+        command: sandbox.commands.status,
+      },
+    };
+  }
+
+  if (forward.state === "invalid") {
+    return {
+      sandbox: sandbox.name,
+      forward,
+      suggestedAction: {
+        severity: "bad",
+        label: "Run doctor",
+        detail: "The recorded endpoint is not a local HTTP URL for the registered port.",
+        command: sandbox.commands.doctor,
+      },
+    };
+  }
+
+  return {
+    sandbox: sandbox.name,
+    forward,
+    suggestedAction: {
+      severity: "bad",
+      label: "Repair Forward",
+      detail: "Restart the gateway and host-side dashboard/API forward for this sandbox.",
+      command: sandbox.commands.recover,
+    },
+  };
+}
+
 function parseTail(value: string | null): number {
   if (!value) return 200;
   if (!/^\d+$/.test(value)) return 200;
@@ -320,6 +455,7 @@ async function handleApiRequest(
     overviewProvider: () => Promise<UiOverview>;
     sandboxExists: (sandboxName: string) => boolean;
     runCliAction: (args: string[]) => Promise<UiCommandResult>;
+    probeForward: (sandbox: UiSandboxSummary) => Promise<UiForwardStatus>;
     spawnLogProcess: (sandboxName: string, options: { tail: number }) => LogChildProcess;
   },
 ): Promise<void> {
@@ -345,6 +481,19 @@ async function handleApiRequest(
       return;
     }
 
+    if (req.method === "GET" && parts.length === 4 && parts[3] === "live") {
+      if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
+      const overview = await opts.overviewProvider();
+      const sandbox = overview.sandboxes.find((entry) => entry.name === sandboxName);
+      if (!sandbox) {
+        sendJson(res, 404, { error: `Sandbox '${sandboxName}' is not in the UI overview.` });
+        return;
+      }
+      const forward = await opts.probeForward(sandbox);
+      sendJson(res, 200, liveHealthForSandbox(sandbox, forward));
+      return;
+    }
+
     if (
       req.method === "GET" &&
       parts.length === 5 &&
@@ -352,6 +501,39 @@ async function handleApiRequest(
       parts[4] === "stream"
     ) {
       await handleLogsStream(req, res, sandboxName, url, opts);
+      return;
+    }
+
+    if (req.method === "POST" && parts.length === 5 && parts[3] === "actions") {
+      if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
+      await readJsonBody(req);
+      const action = parts[4];
+      if (action !== "status" && action !== "doctor") {
+        sendJson(res, 404, { error: "Unsupported sandbox action." });
+        return;
+      }
+      const result = await opts.runCliAction([sandboxName, action]);
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "POST" && parts.length === 5 && parts[3] === "forward" && parts[4] === "repair") {
+      if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
+      await readJsonBody(req);
+      const result = await opts.runCliAction([sandboxName, "recover"]);
+      const overview = await opts.overviewProvider();
+      const sandbox = overview.sandboxes.find((entry) => entry.name === sandboxName);
+      if (!sandbox) {
+        sendJson(res, 404, { error: `Sandbox '${sandboxName}' is not in the UI overview.`, result });
+        return;
+      }
+      const forward = await opts.probeForward(sandbox);
+      sendJson(res, 200, {
+        ok: result.ok && forward.healthy,
+        action: "recover",
+        result,
+        ...liveHealthForSandbox(sandbox, forward),
+      });
       return;
     }
 
@@ -409,6 +591,7 @@ function normalizeOptions(options: UiServerOptions): Required<UiServerOptions> {
       }),
     sandboxExists: options.sandboxExists ?? ((sandboxName) => registry.getSandbox(sandboxName) !== null),
     runCliAction: options.runCliAction ?? ((args) => runCliAction(rootDir, args)),
+    probeForward: options.probeForward ?? probeForward,
     spawnLogProcess:
       options.spawnLogProcess ?? ((sandboxName, logOptions) => spawnLogProcess(rootDir, sandboxName, logOptions)),
   };

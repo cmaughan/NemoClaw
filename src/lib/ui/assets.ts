@@ -72,6 +72,8 @@ export const UI_HTML = String.raw`<!doctype html>
       padding: 7px 10px;
       min-height: 34px;
       cursor: pointer;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
     }
 
     button:hover { border-color: var(--accent); }
@@ -271,6 +273,54 @@ export const UI_HTML = String.raw`<!doctype html>
       margin: 14px 0;
     }
 
+    .health-card {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fbfcfb;
+    }
+
+    .health-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .health-grid {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 8px 12px;
+      font-size: 13px;
+    }
+
+    .health-grid div:nth-child(odd) {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .health-actions {
+      margin: 2px 0 0;
+    }
+
+    .command-output {
+      max-height: 260px;
+      overflow: auto;
+      margin: 0;
+      padding: 10px;
+      border-radius: 6px;
+      background: var(--code);
+      color: #e5e7eb;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
     .command-list {
       display: grid;
       gap: 8px;
@@ -340,6 +390,12 @@ export const UI_HTML = String.raw`<!doctype html>
       main { grid-template-columns: 1fr; }
       .detail { min-height: auto; }
       .wide-only { display: none; }
+      .sandbox-table th:nth-child(1), .sandbox-table td:nth-child(1) { width: 36%; }
+      .sandbox-table th:nth-child(2), .sandbox-table td:nth-child(2) { width: 30%; }
+      .sandbox-table th:nth-child(5), .sandbox-table td:nth-child(5) { width: 18%; }
+      .sandbox-table th:nth-child(6), .sandbox-table td:nth-child(6) { width: 16%; }
+      .sandbox-table th, .sandbox-table td { padding: 8px 6px; }
+      .sandbox-table a { overflow-wrap: anywhere; }
     }
   </style>
 </head>
@@ -387,6 +443,10 @@ export const UI_HTML = String.raw`<!doctype html>
       var activeTab = "health";
       var eventSource = null;
       var logLines = [];
+      var liveHealthByName = {};
+      var liveHealthLoadingByName = {};
+      var liveHealthAttemptedByName = {};
+      var commandOutputByName = {};
 
       function $(id) { return document.getElementById(id); }
 
@@ -475,6 +535,66 @@ export const UI_HTML = String.raw`<!doctype html>
         });
       }
 
+      function liveChipKind(live) {
+        if (!live) return "warn";
+        if (live.forward.healthy) return "good";
+        if (live.forward.state === "not_configured") return "warn";
+        return "bad";
+      }
+
+      function liveChipLabel(live) {
+        if (!live) return "not checked";
+        if (live.forward.healthy) return "forward live";
+        if (live.forward.state === "not_configured") return "no port";
+        if (live.forward.state === "invalid") return "invalid";
+        return "unreachable";
+      }
+
+      function renderCommandOutput(sandbox) {
+        var entry = commandOutputByName[sandbox.name];
+        if (!entry) return "";
+        if (entry.pending) {
+          return '<pre class="command-output">' + esc(entry.title + "\nrunning...") + '</pre>';
+        }
+        var result = entry.result || {};
+        var status = result.ok ? "ok" : "exit " + (result.status == null ? "unknown" : result.status);
+        var body = [];
+        if (result.stdout) body.push(result.stdout);
+        if (result.stderr) body.push(result.stderr);
+        return '<pre class="command-output">' + esc(entry.title + " (" + status + ")\n\n" + (body.join("\n\n") || "(no output)")) + '</pre>';
+      }
+
+      function renderLiveHealth(sandbox) {
+        var live = liveHealthByName[sandbox.name] || null;
+        var forward = live ? live.forward : null;
+        var forwardText = live
+          ? (forward.url || "none") + (forward.httpStatus ? " returned HTTP " + forward.httpStatus : "")
+          : "Not checked";
+        if (forward && forward.error) forwardText += " - " + forward.error;
+        var nextText = live && live.suggestedAction
+          ? live.suggestedAction.label + ": " + live.suggestedAction.detail + (live.suggestedAction.command ? " " + live.suggestedAction.command : "")
+          : "Check live health.";
+        var checked = forward && forward.checkedAt ? new Date(forward.checkedAt).toLocaleTimeString() : "never";
+        var repairDisabled = sandbox.dashboardUrl ? "" : " disabled";
+        return [
+          '<div class="health-card">',
+          '<div class="health-head"><strong>Live Health</strong>' + chip(liveHealthLoadingByName[sandbox.name] ? "checking" : liveChipLabel(live), liveChipKind(live)) + '</div>',
+          '<div class="health-grid">',
+          '<div>Forward</div><div><span class="wrap-text">' + esc(forwardText) + '</span></div>',
+          '<div>Checked</div><div>' + esc(checked) + '</div>',
+          '<div>Next</div><div><span class="wrap-text">' + esc(nextText) + '</span></div>',
+          '</div>',
+          '<div class="actions health-actions">',
+          '<button id="check-live">Check Live</button>',
+          '<button class="primary" id="repair-forward"' + repairDisabled + '>Repair Forward</button>',
+          '<button id="run-status">Run status</button>',
+          '<button id="run-doctor">Run doctor</button>',
+          '</div>',
+          renderCommandOutput(sandbox),
+          '</div>'
+        ].join("");
+      }
+
       function renderHealth(sandbox) {
         var warnings = sandbox.warnings.length
           ? '<div class="warnings">' + sandbox.warnings.map(function (w) { return '<div class="warning">' + esc(w) + '</div>'; }).join("") + '</div>'
@@ -490,10 +610,10 @@ export const UI_HTML = String.raw`<!doctype html>
           '<div>Endpoint</div><div>' + (sandbox.dashboardUrl ? '<a href="' + esc(sandbox.dashboardUrl) + '" target="_blank" rel="noreferrer">' + esc(sandbox.dashboardUrl) + '</a>' : '<span class="muted">none</span>') + '</div>',
           '</div>',
           warnings,
+          renderLiveHealth(sandbox),
           '<div class="actions">',
-          '<button class="primary" id="recover">Recover</button>',
-          '<button id="copy-status">Copy status command</button>',
-          '<button id="copy-doctor">Copy doctor command</button>',
+          '<button data-copy="' + esc(sandbox.commands.status) + '">Copy status command</button>',
+          '<button data-copy="' + esc(sandbox.commands.doctor) + '">Copy doctor command</button>',
           '</div>',
           renderCommands(sandbox)
         ].join("");
@@ -555,23 +675,67 @@ export const UI_HTML = String.raw`<!doctype html>
         ].join("");
       }
 
+      function loadLiveHealth(name) {
+        if (liveHealthLoadingByName[name]) return;
+        liveHealthAttemptedByName[name] = true;
+        liveHealthLoadingByName[name] = true;
+        renderDetail();
+        authFetch("/api/sandboxes/" + encodeURIComponent(name) + "/live")
+          .then(function (data) {
+            liveHealthByName[name] = data;
+          })
+          .catch(function (err) {
+            commandOutputByName[name] = { title: "Live Health", result: { ok: false, status: null, stdout: "", stderr: err.message } };
+          })
+          .finally(function () {
+            delete liveHealthLoadingByName[name];
+            renderDetail();
+          });
+      }
+
+      function runSandboxAction(sandbox, action, title) {
+        commandOutputByName[sandbox.name] = { title: title, pending: true };
+        renderDetail();
+        authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/actions/" + action, { method: "POST" })
+          .then(function (result) {
+            commandOutputByName[sandbox.name] = { title: title, result: result };
+          })
+          .catch(function (err) {
+            commandOutputByName[sandbox.name] = { title: title, result: { ok: false, status: null, stdout: "", stderr: err.message } };
+          })
+          .finally(function () { renderDetail(); });
+      }
+
+      function repairForward(sandbox) {
+        commandOutputByName[sandbox.name] = { title: "Repair Forward", pending: true };
+        renderDetail();
+        authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/forward/repair", { method: "POST" })
+          .then(function (data) {
+            liveHealthByName[sandbox.name] = data;
+            commandOutputByName[sandbox.name] = { title: "Repair Forward", result: data.result };
+            renderDetail();
+            load().catch(function () {});
+          })
+          .catch(function (err) {
+            commandOutputByName[sandbox.name] = { title: "Repair Forward", result: { ok: false, status: null, stdout: "", stderr: err.message } };
+            renderDetail();
+          });
+      }
+
       function bindDetailActions(sandbox) {
         Array.prototype.forEach.call(document.querySelectorAll("[data-copy]"), function (button) {
           button.addEventListener("click", function () {
             navigator.clipboard.writeText(button.getAttribute("data-copy") || "");
           });
         });
-        var recover = $("recover");
-        if (recover) {
-          recover.addEventListener("click", function () {
-            recover.disabled = true;
-            recover.textContent = "Recovering";
-            authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/recover", { method: "POST" })
-              .then(function () { return load(); })
-              .catch(function (err) { alert(err.message); })
-              .finally(function () { recover.disabled = false; recover.textContent = "Recover"; });
-          });
-        }
+        var checkLive = $("check-live");
+        if (checkLive) checkLive.addEventListener("click", function () { loadLiveHealth(sandbox.name); });
+        var repair = $("repair-forward");
+        if (repair) repair.addEventListener("click", function () { repairForward(sandbox); });
+        var runStatus = $("run-status");
+        if (runStatus) runStatus.addEventListener("click", function () { runSandboxAction(sandbox, "status", "Status"); });
+        var runDoctor = $("run-doctor");
+        if (runDoctor) runDoctor.addEventListener("click", function () { runSandboxAction(sandbox, "doctor", "Doctor"); });
         var startLogs = $("start-logs");
         if (startLogs) {
           startLogs.addEventListener("click", function () { startLogStream(sandbox.name); });
@@ -608,6 +772,14 @@ export const UI_HTML = String.raw`<!doctype html>
         if (activeTab === "channels") $("detail").innerHTML = renderChannels(sandbox);
         if (activeTab === "snapshots") $("detail").innerHTML = renderSnapshots(sandbox);
         bindDetailActions(sandbox);
+        if (
+          activeTab === "health" &&
+          !liveHealthByName[sandbox.name] &&
+          !liveHealthLoadingByName[sandbox.name] &&
+          !liveHealthAttemptedByName[sandbox.name]
+        ) {
+          loadLiveHealth(sandbox.name);
+        }
       }
 
       function renderLogOutput(filter) {

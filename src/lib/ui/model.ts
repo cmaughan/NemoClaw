@@ -63,3 +63,25 @@ export interface UiCommandResult {
   stdout: string;
   stderr: string;
 }
+
+export interface UiForwardStatus {
+  configured: boolean;
+  healthy: boolean;
+  state: "healthy" | "unreachable" | "not_configured" | "invalid";
+  port: number | null;
+  url: string | null;
+  httpStatus: number | null;
+  checkedAt: string;
+  error?: string;
+}
+
+export interface UiLiveHealth {
+  sandbox: string;
+  forward: UiForwardStatus;
+  suggestedAction: {
+    severity: "ok" | "warn" | "bad";
+    label: string;
+    detail: string;
+    command: string | null;
+  };
+}
