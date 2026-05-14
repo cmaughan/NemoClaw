@@ -331,8 +331,8 @@ const openshellPinFlow: typeof import("./onboard/openshell-pin") =
 const sandboxCreateFailureDiagnostics: typeof import("./onboard/sandbox-create-failure") =
   require("./onboard/sandbox-create-failure");
 
-import type { AgentDefinition } from "./agent/defs";
 import type { CurlProbeResult } from "./adapters/http/probe";
+import type { AgentDefinition } from "./agent/defs";
 import type { WebSearchConfig } from "./inference/web-search";
 import {
   hydrateMessagingChannelConfig,
@@ -2925,8 +2925,14 @@ function resolveOpenShellGatewayBinary(): string | null {
   if (configured && configured.trim()) return path.resolve(configured.trim());
   const sibling = resolveSiblingBinary("openshell-gateway");
   if (sibling) return sibling;
+  const homebrewPrefixes = [
+    process.env.HOMEBREW_PREFIX,
+    "/opt/homebrew",
+    "/usr/local",
+  ].filter((prefix): prefix is string => Boolean(prefix && prefix.trim()));
   for (const candidate of [
     path.join(os.homedir(), ".local", "bin", "openshell-gateway"),
+    ...homebrewPrefixes.map((prefix) => path.join(prefix, "bin", "openshell-gateway")),
     "/usr/local/bin/openshell-gateway",
     "/usr/bin/openshell-gateway",
   ]) {

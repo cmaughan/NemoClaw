@@ -76,6 +76,7 @@ describe("buildDockerGatewayDebEnvFile", () => {
         OPENSHELL_GRPC_ENDPOINT: "http://127.0.0.1:8990",
         OPENSHELL_SSH_GATEWAY_HOST: "127.0.0.1",
         OPENSHELL_SSH_GATEWAY_PORT: "8990",
+        OPENSHELL_DRIVER_DIR: "/opt/homebrew/opt/openshell/libexec",
         OPENSHELL_DOCKER_NETWORK_NAME: "openshell-docker",
         OPENSHELL_DOCKER_SUPERVISOR_IMAGE: "new",
         OPENSHELL_VM_DRIVER_STATE_DIR: "/tmp/old-vm-driver",
@@ -85,6 +86,7 @@ describe("buildDockerGatewayDebEnvFile", () => {
     expect(next).toContain("KEEP_ME=1\n");
     expect(next).toContain("OPENSHELL_BIND_ADDRESS=0.0.0.0\n");
     expect(next).toContain("OPENSHELL_SERVER_PORT=8990\n");
+    expect(next).toContain("OPENSHELL_DRIVER_DIR=/opt/homebrew/opt/openshell/libexec\n");
     expect(next).toContain("OPENSHELL_DOCKER_SUPERVISOR_IMAGE=new\n");
     expect(next).toContain("OPENSHELL_VM_DRIVER_STATE_DIR=/tmp/old-vm-driver\n");
     expect(next).not.toContain("OPENSHELL_BIND_ADDRESS=127.0.0.1");

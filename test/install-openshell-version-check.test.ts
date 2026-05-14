@@ -28,12 +28,14 @@ function runWithInstalledVersion(
     driverBins?: boolean | "gateway" | "gateway-vm";
     os?: string;
     arch?: string;
+    homebrewVmDriver?: boolean;
   } = {},
 ) {
   const capability = options.capability ?? true;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-openshell-ver-"));
   try {
     const fakeBin = path.join(tmp, "bin");
+    const homebrewPrefix = path.join(tmp, "homebrew");
     fs.mkdirSync(fakeBin);
 
     writeExecutable(
@@ -68,6 +70,15 @@ exit 0`,
     if (options.driverBins === "gateway-vm") {
       writeExecutable(
         path.join(fakeBin, "openshell-driver-vm"),
+        `#!/usr/bin/env bash
+exit 0`,
+      );
+    }
+    if (options.homebrewVmDriver) {
+      const libexec = path.join(homebrewPrefix, "opt", "openshell", "libexec");
+      fs.mkdirSync(libexec, { recursive: true });
+      writeExecutable(
+        path.join(libexec, "openshell-driver-vm"),
         `#!/usr/bin/env bash
 exit 0`,
       );
@@ -113,6 +124,10 @@ exit 0`,
       env: {
         ...process.env,
         NEMOCLAW_OPENSHELL_CHANNEL: "stable",
+        NEMOCLAW_OPENSHELL_HOMEBREW_PREFIXES: options.homebrewVmDriver
+          ? homebrewPrefix
+          : path.join(tmp, "empty-homebrew"),
+        ...(options.homebrewVmDriver ? { HOMEBREW_PREFIX: homebrewPrefix } : {}),
         ...extraEnv,
         PATH: `${fakeBin}:/usr/bin:/bin`,
       },
@@ -152,6 +167,19 @@ describe("install-openshell.sh version check", { timeout: 15_000 }, () => {
     });
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(/already installed.*0\.0\.39/);
+  });
+
+  it("accepts macOS Homebrew installs with openshell-driver-vm in opt libexec", () => {
+    const result = runWithInstalledVersion("0.0.39", {}, {
+      driverBins: "gateway",
+      os: "Darwin",
+      arch: "arm64",
+      homebrewVmDriver: true,
+    });
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toMatch(/already installed.*0\.0\.39/);
+    expect(result.stdout).not.toMatch(/missing Docker-driver binaries/);
+    expect(result.stdout).not.toMatch(/Installing OpenShell from release/);
   });
 
   it("does not require the macOS VM driver entitlement for Docker-driver onboarding", () => {
