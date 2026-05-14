@@ -171,6 +171,11 @@ After the sandbox is running, send a message to the configured bot or app.
 If delivery fails, use `openshell term` on the host, check gateway logs, and verify network policy allows the channel API.
 Use the matching policy preset (`telegram`, `discord`, or `slack`) or review [Common Integration Policy Examples](../network-policy/integration-policy-examples.md).
 
+The local `nemoclaw ui` Channels tab can also run a fixed test-message send when a DM target is configured.
+The UI sends only a generated NemoClaw test string and never returns token values in responses.
+Because NemoClaw stores channel credentials in the OpenShell gateway rather than on disk, the test send requires the matching token environment variable to be available to the UI process, such as `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`, or `SLACK_BOT_TOKEN`.
+If the UI process cannot read the token, paste it into the per-channel temporary token field; the token is used for that one request and is not saved.
+
 ## Tunnel Command
 
 When the host has `cloudflared`, `nemoclaw tunnel start` starts a cloudflared tunnel that can expose the dashboard with a public URL.

@@ -311,6 +311,22 @@ export const UI_HTML = String.raw`<!doctype html>
       margin: 2px 0 0;
     }
 
+    .channel-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .channel-description {
+      margin: -2px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .channel-token-input {
+      flex: 1 1 220px;
+    }
+
     .command-output {
       max-height: 260px;
       overflow: auto;
@@ -449,6 +465,10 @@ export const UI_HTML = String.raw`<!doctype html>
       var liveHealthByName = {};
       var liveHealthLoadingByName = {};
       var liveHealthAttemptedByName = {};
+      var channelCheckByName = {};
+      var channelCheckLoadingByName = {};
+      var channelTestByName = {};
+      var channelTestLoadingByName = {};
       var commandOutputByName = {};
 
       function $(id) { return document.getElementById(id); }
@@ -609,6 +629,101 @@ export const UI_HTML = String.raw`<!doctype html>
         ].join("");
       }
 
+      function channelKey(sandbox, channel) {
+        return sandbox.name + ":" + channel.name;
+      }
+
+      function channelChipKind(channel) {
+        if (!channel) return "warn";
+        if (channel.state === "active") return "good";
+        if (channel.state === "conflict") return "bad";
+        if (channel.state === "paused" || channel.state === "needs_policy") return "warn";
+        return "";
+      }
+
+      function channelChipLabel(channel) {
+        if (!channel) return "unknown";
+        if (channel.state === "active") return "active";
+        if (channel.state === "paused") return "stopped";
+        if (channel.state === "needs_policy") return "needs policy";
+        if (channel.state === "conflict") return "overlap";
+        return "not configured";
+      }
+
+      function channelCredentialText(channel) {
+        if (!channel.credentials || channel.credentials.length === 0) return "none";
+        return channel.credentials.map(function (credential) {
+          var state = credential.state === "recorded"
+            ? "recorded"
+            : credential.state === "unknown"
+              ? "unknown"
+              : "not configured";
+          return credential.envKey + " " + state;
+        }).join(", ");
+      }
+
+      function channelConfigText(channel) {
+        if (!channel.config || channel.config.length === 0) return "default";
+        return channel.config.map(function (item) {
+          return item.label + ": " + item.value;
+        }).join(", ");
+      }
+
+      function channelOverlapText(channel) {
+        if (!channel.overlaps || channel.overlaps.length === 0) return "none";
+        return channel.overlaps.map(function (overlap) {
+          return overlap.sandbox + " (" + overlap.reason.replace("-", " ") + ")";
+        }).join(", ");
+      }
+
+      function channelTokenEnv(channel) {
+        if (!channel.credentials || channel.credentials.length === 0) return "token";
+        return channel.credentials[0].envKey || "token";
+      }
+
+      function checkChipKind(status) {
+        if (status === "ok") return "good";
+        if (status === "fail") return "bad";
+        if (status === "warn") return "warn";
+        return "";
+      }
+
+      function renderChannelCheck(sandbox, channel) {
+        var key = channelKey(sandbox, channel);
+        var check = channelCheckByName[key];
+        if (channelCheckLoadingByName[key]) {
+          return '<pre class="command-output">Channel check for ' + esc(channel.name) + "\nrunning..." + '</pre>';
+        }
+        if (!check) return "";
+        var lines = [
+          "Channel check for " + check.channel + " (" + check.status + ")",
+          "checked: " + new Date(check.checkedAt).toLocaleTimeString(),
+          ""
+        ];
+        (check.checks || []).forEach(function (item) {
+          lines.push(item.label + ": " + item.status + " - " + item.detail);
+          if (item.hint) lines.push("  hint: " + item.hint);
+        });
+        return '<pre class="command-output">' + esc(lines.join("\n")) + '</pre>';
+      }
+
+      function renderChannelTest(sandbox, channel) {
+        var key = channelKey(sandbox, channel);
+        var test = channelTestByName[key];
+        if (channelTestLoadingByName[key]) {
+          return '<pre class="command-output">Test message for ' + esc(channel.name) + "\nsending..." + '</pre>';
+        }
+        if (!test) return "";
+        var lines = [
+          "Test message for " + test.channel + " (" + test.status + ")",
+          "checked: " + new Date(test.checkedAt).toLocaleTimeString(),
+          "target: " + (test.target || "none"),
+          "detail: " + test.detail
+        ];
+        if (test.error) lines.push("error: " + test.error);
+        return '<pre class="command-output">' + esc(lines.join("\n")) + '</pre>';
+      }
+
       function renderCommandOutput(sandbox) {
         var entry = commandOutputByName[sandbox.name];
         if (!entry) return "";
@@ -700,16 +815,59 @@ export const UI_HTML = String.raw`<!doctype html>
       }
 
       function renderChannels(sandbox) {
-        var channels = sandbox.messagingChannels.length ? sandbox.messagingChannels.join(", ") : "none";
-        var disabled = sandbox.disabledChannels.length ? sandbox.disabledChannels.join(", ") : "none";
+        var channels = sandbox.channelStatuses || [];
+        if (channels.length === 0) {
+          return [
+            '<div class="empty">No channel metadata available.</div>',
+            '<div class="actions">',
+            '<button data-copy="' + esc(sandbox.commands.channelsList) + '">Copy channels list</button>',
+            '</div>'
+          ].join("");
+        }
         return [
-          '<div class="kv">',
-          '<div>Configured</div><div>' + esc(channels) + '</div>',
-          '<div>Stopped</div><div>' + esc(disabled) + '</div>',
+          '<div class="channel-list">',
+          channels.map(function (channel) {
+            var key = channelKey(sandbox, channel);
+            var primaryCommand = channel.state === "paused"
+              ? channel.commands.start
+              : channel.configured
+                ? channel.commands.stop
+                : channel.commands.add;
+            var primaryLabel = channel.state === "paused" ? "Copy start" : channel.configured ? "Copy stop" : "Copy add";
+            var testDisabled = !channel.test || !channel.test.available || channelTestLoadingByName[key] ? " disabled" : "";
+            var testTitle = channel.test && channel.test.unavailableReason ? ' title="' + esc(channel.test.unavailableReason) + '"' : "";
+            var tokenInput = channel.test && channel.test.available
+              ? '<input class="channel-token-input mono" type="password" data-channel-token="' + esc(channel.name) + '" placeholder="Optional ' + esc(channelTokenEnv(channel)) + ' for this test" autocomplete="off" autocapitalize="off" spellcheck="false">'
+              : "";
+            return [
+              '<div class="health-card">',
+              '<div class="health-head"><strong>' + esc(channel.name) + '</strong>' + chip(channelChipLabel(channel), channelChipKind(channel)) + '</div>',
+              '<div class="channel-description">' + esc(channel.description) + '</div>',
+              '<div class="health-grid">',
+              '<div>Bridge</div><div><span class="wrap-text">' + esc(channel.active ? "enabled" : channel.paused ? "paused" : "not configured") + '</span></div>',
+              '<div>Policy</div><div>' + esc(channel.policyApplied ? "applied" : "not applied") + '</div>',
+              '<div>Tokens</div><div><span class="wrap-text">' + esc(channelCredentialText(channel)) + '</span></div>',
+              '<div>Access</div><div><span class="wrap-text">' + esc(channelConfigText(channel)) + '</span></div>',
+              '<div>Overlap</div><div><span class="wrap-text">' + esc(channelOverlapText(channel)) + '</span></div>',
+              '<div>Test</div><div><span class="wrap-text">' + esc(channel.test && channel.test.available ? channel.test.target : channel.test && channel.test.unavailableReason ? channel.test.unavailableReason : "unavailable") + '</span></div>',
+              '<div>Next</div><div><span class="wrap-text">' + esc(channel.next) + '</span></div>',
+              '</div>',
+              '<div class="actions health-actions">',
+              tokenInput,
+              '<button data-channel-check="' + esc(channel.name) + '"' + (channelCheckLoadingByName[key] ? " disabled" : "") + '>Check</button>',
+              '<button data-channel-test="' + esc(channel.name) + '"' + testDisabled + testTitle + '>Send test message</button>',
+              '<button data-copy="' + esc(primaryCommand) + '">' + esc(primaryLabel) + '</button>',
+              '<button data-copy="' + esc(channel.commands.remove) + '">Copy remove</button>',
+              '<button data-copy="' + esc(channel.commands.rebuild) + '">Copy rebuild</button>',
+              '</div>',
+              renderChannelCheck(sandbox, channel),
+              renderChannelTest(sandbox, channel),
+              '</div>'
+            ].join("");
+          }).join(""),
           '</div>',
           '<div class="actions">',
           '<button data-copy="' + esc(sandbox.commands.channelsList) + '">Copy channels list</button>',
-          '<button data-copy="' + esc(sandbox.commands.rebuild) + '">Copy rebuild</button>',
           '</div>'
         ].join("");
       }
@@ -835,10 +993,81 @@ export const UI_HTML = String.raw`<!doctype html>
           });
       }
 
+      function runChannelCheck(sandbox, channelName) {
+        var key = sandbox.name + ":" + channelName;
+        channelCheckLoadingByName[key] = true;
+        renderDetail();
+        authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/channels/" + encodeURIComponent(channelName) + "/check", { method: "POST" })
+          .then(function (result) {
+            channelCheckByName[key] = result;
+          })
+          .catch(function (err) {
+            channelCheckByName[key] = {
+              sandbox: sandbox.name,
+              channel: channelName,
+              ok: false,
+              status: "fail",
+              checkedAt: new Date().toISOString(),
+              summary: {},
+              checks: [{ label: "Check", status: "fail", detail: err.message }],
+              command: { ok: false, status: null, stdout: "", stderr: err.message }
+            };
+          })
+          .finally(function () {
+            delete channelCheckLoadingByName[key];
+            renderDetail();
+          });
+      }
+
+      function runChannelTest(sandbox, channelName) {
+        if (!window.confirm("Send a fixed NemoClaw test message via " + channelName + "?")) return;
+        var key = sandbox.name + ":" + channelName;
+        var tokenInput = document.querySelector('[data-channel-token="' + CSS.escape(channelName) + '"]');
+        var token = tokenInput && tokenInput.value ? tokenInput.value : "";
+        if (tokenInput) tokenInput.value = "";
+        channelTestLoadingByName[key] = true;
+        renderDetail();
+        authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/channels/" + encodeURIComponent(channelName) + "/test-message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(token ? { token: token } : {})
+        })
+          .then(function (result) {
+            channelTestByName[key] = result;
+          })
+          .catch(function (err) {
+            channelTestByName[key] = {
+              sandbox: sandbox.name,
+              channel: channelName,
+              ok: false,
+              status: "failed",
+              checkedAt: new Date().toISOString(),
+              target: null,
+              detail: "Test message failed.",
+              providerStatus: null,
+              error: err.message
+            };
+          })
+          .finally(function () {
+            delete channelTestLoadingByName[key];
+            renderDetail();
+          });
+      }
+
       function bindDetailActions(sandbox) {
         Array.prototype.forEach.call(document.querySelectorAll("[data-copy]"), function (button) {
           button.addEventListener("click", function () {
             navigator.clipboard.writeText(button.getAttribute("data-copy") || "");
+          });
+        });
+        Array.prototype.forEach.call(document.querySelectorAll("[data-channel-check]"), function (button) {
+          button.addEventListener("click", function () {
+            runChannelCheck(sandbox, button.getAttribute("data-channel-check") || "");
+          });
+        });
+        Array.prototype.forEach.call(document.querySelectorAll("[data-channel-test]"), function (button) {
+          button.addEventListener("click", function () {
+            runChannelTest(sandbox, button.getAttribute("data-channel-test") || "");
           });
         });
         var checkLive = $("check-live");

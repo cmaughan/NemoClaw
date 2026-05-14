@@ -2,11 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { CLI_NAME } from "../cli/branding";
+import { resolveMessagingTestTarget } from "../messaging/test-send";
+import { findAllOverlaps } from "../messaging-conflict";
+import { getChannelTokenKeys, listChannels } from "../sandbox/channels";
 import * as sandboxVersion from "../sandbox/version";
 import { redactFull } from "../security/redact";
 import * as registry from "../state/registry";
 import * as sandboxState from "../state/sandbox";
-import type { UiOverview, UiSandboxSummary, UiSnapshotSummary, UiVersionSummary } from "./model";
+import type {
+  UiChannelSummary,
+  UiOverview,
+  UiSandboxSummary,
+  UiSnapshotSummary,
+  UiVersionSummary,
+} from "./model";
 
 function clean(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -117,6 +126,151 @@ function snapshotsForSandbox(name: string): UiSnapshotSummary {
   }
 }
 
+function commandSetForChannel(sandboxName: string, channelName: string): UiChannelSummary["commands"] {
+  return {
+    add: `${CLI_NAME} ${sandboxName} channels add ${channelName}`,
+    stop: `${CLI_NAME} ${sandboxName} channels stop ${channelName}`,
+    start: `${CLI_NAME} ${sandboxName} channels start ${channelName}`,
+    remove: `${CLI_NAME} ${sandboxName} channels remove ${channelName}`,
+    rebuild: `${CLI_NAME} ${sandboxName} rebuild`,
+  };
+}
+
+function channelConfigItems(
+  channel: ReturnType<typeof listChannels>[number],
+  config: Record<string, string> | undefined,
+): UiChannelSummary["config"] {
+  const items: UiChannelSummary["config"] = [];
+  const valueFor = (key: string | undefined): string | null =>
+    key && typeof config?.[key] === "string" ? config[key] : null;
+
+  if (channel.serverIdEnvKey) {
+    const value = valueFor(channel.serverIdEnvKey);
+    items.push({
+      label: channel.serverIdLabel || channel.serverIdEnvKey,
+      value: value ? "set" : "not set",
+      state: value ? "set" : "unset",
+    });
+  }
+  if (channel.userIdEnvKey) {
+    const value = valueFor(channel.userIdEnvKey);
+    const emptyValue =
+      channel.allowIdsMode === "guild" ? "open to configured server" : "not restricted";
+    items.push({
+      label: channel.userIdLabel || channel.userIdEnvKey,
+      value: value ? "set" : emptyValue,
+      state: value ? "set" : "unset",
+    });
+  }
+  if (channel.requireMentionEnvKey) {
+    const value = valueFor(channel.requireMentionEnvKey);
+    items.push({
+      label: "Reply mode",
+      value: value === "1" ? "mentions only" : value === "0" ? "all messages" : "default",
+      state: value ? "set" : "default",
+    });
+  }
+
+  return items;
+}
+
+function channelState(input: {
+  configured: boolean;
+  paused: boolean;
+  policyApplied: boolean;
+  overlaps: UiChannelSummary["overlaps"];
+}): UiChannelSummary["state"] {
+  if (!input.configured) return "not_configured";
+  if (input.paused) return "paused";
+  if (input.overlaps.length > 0) return "conflict";
+  if (!input.policyApplied) return "needs_policy";
+  return "active";
+}
+
+function channelNextText(state: UiChannelSummary["state"], channelName: string): string {
+  if (state === "active") return "Bridge is configured. Run a check to inspect live health signals.";
+  if (state === "paused") return "Start the channel and rebuild when you want messages to flow again.";
+  if (state === "needs_policy") {
+    return `Apply the ${channelName} policy preset before expecting outbound messaging to work.`;
+  }
+  if (state === "conflict") return "Resolve the token overlap before relying on this bridge.";
+  return "Add the channel, then rebuild so the sandbox image picks it up.";
+}
+
+function channelsForSandbox(input: {
+  sandbox: registry.SandboxEntry;
+  policies: string[];
+  messagingChannels: string[];
+  disabledChannels: string[];
+  overlaps: ReturnType<typeof findAllOverlaps>;
+}): UiChannelSummary[] {
+  const configured = new Set(input.messagingChannels);
+  const paused = new Set(input.disabledChannels);
+  const policySet = new Set(input.policies);
+  const credentialHashes = input.sandbox.providerCredentialHashes || {};
+  const channelConfig = input.sandbox.messagingChannelConfig;
+
+  return listChannels().map((channel): UiChannelSummary => {
+    const channelOverlaps = input.overlaps
+      .filter(
+        (overlap) =>
+          overlap.channel === channel.name && overlap.sandboxes.includes(input.sandbox.name),
+      )
+      .map((overlap) => ({
+        sandbox: overlap.sandboxes.find((name) => name !== input.sandbox.name) || input.sandbox.name,
+        reason: overlap.reason,
+      }));
+    const isConfigured = configured.has(channel.name);
+    const isPaused = paused.has(channel.name);
+    const policyApplied = policySet.has(channel.name);
+    const state = channelState({
+      configured: isConfigured,
+      paused: isPaused,
+      policyApplied,
+      overlaps: channelOverlaps,
+    });
+    const testTarget = resolveMessagingTestTarget(channel.name, channelConfig);
+    const testAvailable = isConfigured && !isPaused && testTarget.available;
+
+    return {
+      name: channel.name,
+      description: channel.description,
+      configured: isConfigured,
+      paused: isPaused,
+      active: isConfigured && !isPaused,
+      policyApplied,
+      state,
+      credentials: getChannelTokenKeys(channel).map((envKey) => ({
+        envKey,
+        label:
+          envKey === channel.envKey
+            ? channel.label
+            : channel.appTokenLabel || envKey,
+        state: isConfigured
+          ? credentialHashes[envKey]
+            ? "recorded"
+            : "unknown"
+          : "not_configured",
+      })),
+      config: channelConfigItems(channel, channelConfig),
+      overlaps: channelOverlaps,
+      test: {
+        available: testAvailable,
+        target: testAvailable ? testTarget.label : null,
+        unavailableReason: testAvailable
+          ? null
+          : !isConfigured
+            ? "Channel is not configured."
+            : isPaused
+              ? "Channel is stopped."
+              : testTarget.unavailableReason,
+      },
+      next: channelNextText(state, channel.name),
+      commands: commandSetForChannel(input.sandbox.name, channel.name),
+    };
+  });
+}
+
 function versionForSandbox(name: string): UiVersionSummary {
   try {
     const version = sandboxVersion.checkAgentVersion(name, { skipProbe: true });
@@ -162,6 +316,7 @@ export async function buildUiOverview(_rootDir: string): Promise<UiOverview> {
   // process.exit() for command UX, so the dashboard avoids them in v1.
   const registered = registry.listSandboxes();
   const gatewayHealth = null;
+  const channelOverlaps = findAllOverlaps(registry);
 
   const sandboxes = registered.sandboxes.map((sandbox): UiSandboxSummary => {
     const agent = clean(sandbox.agent || "openclaw") || "openclaw";
@@ -196,6 +351,13 @@ export async function buildUiOverview(_rootDir: string): Promise<UiOverview> {
       policies,
       messagingChannels,
       disabledChannels,
+      channelStatuses: channelsForSandbox({
+        sandbox,
+        policies,
+        messagingChannels,
+        disabledChannels,
+        overlaps: channelOverlaps,
+      }),
       warnings: warningsForSandbox({
         agent: normalizedAgent,
         dashboardPort,

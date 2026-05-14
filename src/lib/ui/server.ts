@@ -9,11 +9,21 @@ import type { Readable } from "node:stream";
 
 import { CLI_NAME } from "../cli/branding";
 import { isErrnoException } from "../core/errno";
+import { sendMessagingTestMessage } from "../messaging/test-send";
 import { NAME_ALLOWED_FORMAT } from "../name-validation";
 import { redactFull } from "../security/redact";
 import * as registry from "../state/registry";
 import { UI_HTML } from "./assets";
-import type { UiCommandResult, UiForwardStatus, UiLiveHealth, UiOverview, UiSandboxSummary } from "./model";
+import type {
+  UiChannelCheck,
+  UiChannelSummary,
+  UiChannelTestResult,
+  UiCommandResult,
+  UiForwardStatus,
+  UiLiveHealth,
+  UiOverview,
+  UiSandboxSummary,
+} from "./model";
 
 const JSON_BODY_LIMIT_BYTES = 16 * 1024;
 const COMMAND_TIMEOUT_MS = 120_000;
@@ -32,6 +42,11 @@ export interface UiServerOptions {
   sandboxExists?: (sandboxName: string) => boolean;
   runCliAction?: (args: string[]) => Promise<UiCommandResult>;
   probeForward?: (sandbox: UiSandboxSummary) => Promise<UiForwardStatus>;
+  sendChannelTest?: (
+    sandbox: UiSandboxSummary,
+    channel: UiChannelSummary,
+    tokenOverride?: string | null,
+  ) => Promise<UiChannelTestResult>;
   spawnLogProcess?: (sandboxName: string, options: { tail: number }) => LogChildProcess;
 }
 
@@ -409,6 +424,142 @@ function rebuildPreflightResult(input: {
   };
 }
 
+function parseDoctorMessagingCheck(result: UiCommandResult):
+  | { status: "ok" | "warn" | "fail" | "info"; detail: string; hint?: string }
+  | null {
+  try {
+    const parsed = JSON.parse(result.stdout) as {
+      checks?: Array<{
+        group?: unknown;
+        label?: unknown;
+        status?: unknown;
+        detail?: unknown;
+        hint?: unknown;
+      }>;
+    };
+    const check = Array.isArray(parsed.checks)
+      ? parsed.checks.find((item) => item.group === "Messaging" && item.label === "Channels")
+      : null;
+    if (
+      !check ||
+      (check.status !== "ok" &&
+        check.status !== "warn" &&
+        check.status !== "fail" &&
+        check.status !== "info") ||
+      typeof check.detail !== "string"
+    ) {
+      return null;
+    }
+    return {
+      status: check.status,
+      detail: redactFull(check.detail),
+      ...(typeof check.hint === "string" ? { hint: redactFull(check.hint) } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function statusRank(status: "ok" | "warn" | "fail" | "info"): number {
+  return { fail: 3, warn: 2, info: 1, ok: 0 }[status];
+}
+
+function summarizeCredentialState(channel: UiChannelSummary): {
+  status: "ok" | "warn" | "fail" | "info";
+  detail: string;
+} {
+  if (!channel.configured) {
+    return { status: "info", detail: "channel is not configured" };
+  }
+  const recorded = channel.credentials.filter((credential) => credential.state === "recorded");
+  if (recorded.length === channel.credentials.length) {
+    return { status: "ok", detail: "required credential hashes are recorded" };
+  }
+  return {
+    status: "info",
+    detail: "credential presence is unknown for this older registry entry",
+  };
+}
+
+function channelCheckResult(input: {
+  sandbox: UiSandboxSummary;
+  channel: UiChannelSummary;
+  doctor: UiCommandResult;
+}): UiChannelCheck {
+  const checks: UiChannelCheck["checks"] = [];
+  const { sandbox, channel, doctor } = input;
+
+  checks.push({
+    label: "Registry",
+    status: !channel.configured ? "info" : channel.paused ? "warn" : "ok",
+    detail: !channel.configured
+      ? "channel is not configured for this sandbox"
+      : channel.paused
+        ? "channel is configured but paused"
+        : "channel is configured and enabled in the registry",
+    hint: channel.paused ? channel.commands.start : undefined,
+  });
+
+  if (channel.configured) {
+    checks.push({
+      label: "Policy",
+      status: channel.policyApplied ? "ok" : "warn",
+      detail: channel.policyApplied
+        ? `${channel.name} policy preset is applied`
+        : `${channel.name} policy preset is not applied`,
+      hint: channel.policyApplied ? undefined : `${CLI_NAME} ${sandbox.name} policy-add ${channel.name}`,
+    });
+    checks.push({
+      label: "Credentials",
+      ...summarizeCredentialState(channel),
+    });
+    checks.push({
+      label: "Overlap",
+      status: channel.overlaps.length > 0 ? "fail" : "ok",
+      detail:
+        channel.overlaps.length > 0
+          ? channel.overlaps
+              .map((overlap) => `${overlap.sandbox} (${overlap.reason.replace("-", " ")})`)
+              .join(", ")
+          : "no registry token overlap detected",
+    });
+  }
+
+  const doctorCheck = parseDoctorMessagingCheck(doctor);
+  if (doctorCheck) {
+    checks.push({
+      label: "Doctor",
+      status: doctorCheck.status,
+      detail: doctorCheck.detail,
+      ...(doctorCheck.hint ? { hint: doctorCheck.hint } : {}),
+    });
+  } else {
+    checks.push({
+      label: "Doctor",
+      status: doctor.ok ? "info" : "warn",
+      detail: doctor.ok
+        ? "doctor did not return a messaging check"
+        : "doctor output could not be parsed for messaging status",
+      hint: sandbox.commands.doctor,
+    });
+  }
+
+  const status = checks
+    .map((check) => check.status)
+    .sort((left, right) => statusRank(right) - statusRank(left))[0] || "info";
+
+  return {
+    sandbox: sandbox.name,
+    channel: channel.name,
+    ok: status === "ok",
+    status,
+    checkedAt: new Date().toISOString(),
+    summary: channel,
+    checks,
+    command: doctor,
+  };
+}
+
 function parseTail(value: string | null): number {
   if (!value) return 200;
   if (!/^\d+$/.test(value)) return 200;
@@ -509,6 +660,14 @@ function validateSandboxForRequest(
   return true;
 }
 
+function oneShotTokenFromBody(body: unknown): string | null {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
+  const raw = (body as { token?: unknown }).token;
+  if (typeof raw !== "string") return null;
+  const normalized = raw.replace(/\r/g, "").trim();
+  return normalized.length > 0 && normalized.length <= 4096 ? normalized : null;
+}
+
 async function handleApiRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -518,6 +677,11 @@ async function handleApiRequest(
     sandboxExists: (sandboxName: string) => boolean;
     runCliAction: (args: string[]) => Promise<UiCommandResult>;
     probeForward: (sandbox: UiSandboxSummary) => Promise<UiForwardStatus>;
+    sendChannelTest: (
+      sandbox: UiSandboxSummary,
+      channel: UiChannelSummary,
+      tokenOverride?: string | null,
+    ) => Promise<UiChannelTestResult>;
     spawnLogProcess: (sandboxName: string, options: { tail: number }) => LogChildProcess;
   },
 ): Promise<void> {
@@ -563,6 +727,58 @@ async function handleApiRequest(
       parts[4] === "stream"
     ) {
       await handleLogsStream(req, res, sandboxName, url, opts);
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
+      parts.length === 6 &&
+      parts[3] === "channels" &&
+      typeof parts[4] === "string" &&
+      parts[5] === "check"
+    ) {
+      if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
+      await readJsonBody(req);
+      const channelName = parts[4];
+      const overview = await opts.overviewProvider();
+      const sandbox = overview.sandboxes.find((entry) => entry.name === sandboxName);
+      if (!sandbox) {
+        sendJson(res, 404, { error: `Sandbox '${sandboxName}' is not in the UI overview.` });
+        return;
+      }
+      const channel = sandbox.channelStatuses.find((entry) => entry.name === channelName);
+      if (!channel) {
+        sendJson(res, 404, { error: "Unsupported channel." });
+        return;
+      }
+      const doctor = await opts.runCliAction([sandboxName, "doctor", "--json"]);
+      sendJson(res, 200, channelCheckResult({ sandbox, channel, doctor }));
+      return;
+    }
+
+    if (
+      req.method === "POST" &&
+      parts.length === 6 &&
+      parts[3] === "channels" &&
+      typeof parts[4] === "string" &&
+      parts[5] === "test-message"
+    ) {
+      if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
+      const body = await readJsonBody(req);
+      const channelName = parts[4];
+      const overview = await opts.overviewProvider();
+      const sandbox = overview.sandboxes.find((entry) => entry.name === sandboxName);
+      if (!sandbox) {
+        sendJson(res, 404, { error: `Sandbox '${sandboxName}' is not in the UI overview.` });
+        return;
+      }
+      const channel = sandbox.channelStatuses.find((entry) => entry.name === channelName);
+      if (!channel) {
+        sendJson(res, 404, { error: "Unsupported channel." });
+        return;
+      }
+      const result = await opts.sendChannelTest(sandbox, channel, oneShotTokenFromBody(body));
+      sendJson(res, 200, result);
       return;
     }
 
@@ -689,6 +905,15 @@ function normalizeOptions(options: UiServerOptions): Required<UiServerOptions> {
     sandboxExists: options.sandboxExists ?? ((sandboxName) => registry.getSandbox(sandboxName) !== null),
     runCliAction: options.runCliAction ?? ((args) => runCliAction(rootDir, args)),
     probeForward: options.probeForward ?? probeForward,
+    sendChannelTest:
+      options.sendChannelTest ??
+      ((sandbox, channel, tokenOverride) =>
+        sendMessagingTestMessage({
+          sandboxName: sandbox.name,
+          channel: channel.name,
+          config: registry.getSandbox(sandbox.name)?.messagingChannelConfig || null,
+          ...(tokenOverride ? { tokenResolver: () => tokenOverride } : {}),
+        })),
     spawnLogProcess:
       options.spawnLogProcess ?? ((sandboxName, logOptions) => spawnLogProcess(rootDir, sandboxName, logOptions)),
   };

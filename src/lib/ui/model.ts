@@ -17,6 +17,7 @@ export interface UiSandboxSummary {
   policies: string[];
   messagingChannels: string[];
   disabledChannels: string[];
+  channelStatuses: UiChannelSummary[];
   warnings: string[];
   version: UiVersionSummary;
   snapshots: UiSnapshotSummary;
@@ -64,6 +65,71 @@ export interface UiCommandResult {
   status: number | null;
   stdout: string;
   stderr: string;
+}
+
+export interface UiChannelSummary {
+  name: string;
+  description: string;
+  configured: boolean;
+  paused: boolean;
+  active: boolean;
+  policyApplied: boolean;
+  state: "active" | "paused" | "not_configured" | "needs_policy" | "conflict";
+  credentials: Array<{
+    envKey: string;
+    label: string;
+    state: "recorded" | "unknown" | "not_configured";
+  }>;
+  config: Array<{
+    label: string;
+    value: string;
+    state: "set" | "unset" | "default";
+  }>;
+  overlaps: Array<{
+    sandbox: string;
+    reason: "matching-token" | "unknown-token";
+  }>;
+  test: {
+    available: boolean;
+    target: string | null;
+    unavailableReason: string | null;
+  };
+  next: string;
+  commands: {
+    add: string;
+    stop: string;
+    start: string;
+    remove: string;
+    rebuild: string;
+  };
+}
+
+export interface UiChannelCheck {
+  sandbox: string;
+  channel: string;
+  ok: boolean;
+  status: "ok" | "warn" | "fail" | "info";
+  checkedAt: string;
+  summary: UiChannelSummary;
+  checks: Array<{
+    label: string;
+    status: "ok" | "warn" | "fail" | "info";
+    detail: string;
+    hint?: string;
+  }>;
+  command: UiCommandResult;
+}
+
+export interface UiChannelTestResult {
+  sandbox: string;
+  channel: string;
+  ok: boolean;
+  status: "sent" | "unavailable" | "failed";
+  checkedAt: string;
+  target: string | null;
+  detail: string;
+  providerStatus: number | null;
+  error?: string;
 }
 
 export interface UiSnapshotSummary {

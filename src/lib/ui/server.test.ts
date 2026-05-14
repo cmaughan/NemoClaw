@@ -30,6 +30,45 @@ const overview: UiOverview = {
       policies: ["npm"],
       messagingChannels: [],
       disabledChannels: [],
+      channelStatuses: [
+        {
+          name: "telegram",
+          description: "Telegram bot messaging",
+          configured: true,
+          paused: false,
+          active: true,
+          policyApplied: true,
+          state: "active",
+          credentials: [
+            {
+              envKey: "TELEGRAM_BOT_TOKEN",
+              label: "Telegram Bot Token",
+              state: "recorded",
+            },
+          ],
+          config: [
+            {
+              label: "Reply mode",
+              value: "mentions only",
+              state: "set",
+            },
+          ],
+          overlaps: [],
+          test: {
+            available: true,
+            target: "Telegram DM",
+            unavailableReason: null,
+          },
+          next: "Bridge is configured. Run a check to inspect live health signals.",
+          commands: {
+            add: "nemoclaw alpha channels add telegram",
+            stop: "nemoclaw alpha channels stop telegram",
+            start: "nemoclaw alpha channels start telegram",
+            remove: "nemoclaw alpha channels remove telegram",
+            rebuild: "nemoclaw alpha rebuild",
+          },
+        },
+      ],
       warnings: [],
       version: {
         current: "2026.4.24",
@@ -203,6 +242,103 @@ describe("NemoClaw UI server", () => {
     );
     expect(arbitrary.status).toBe(404);
     expect(runCliAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs a fixed channel check through doctor json", async () => {
+    const runCliAction = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 0,
+      stdout: JSON.stringify({
+        schemaVersion: 1,
+        sandbox: "alpha",
+        status: "ok",
+        checks: [
+          {
+            group: "Messaging",
+            label: "Channels",
+            status: "ok",
+            detail: "telegram enabled; no recent conflict signatures",
+          },
+        ],
+      }),
+      stderr: "",
+    });
+    const server = await startTestServer({ runCliAction });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/channels/telegram/check?token=test-token`,
+      { method: "POST" },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sandbox: "alpha",
+      channel: "telegram",
+      ok: true,
+      status: "ok",
+      checks: expect.arrayContaining([
+        expect.objectContaining({ label: "Registry", status: "ok" }),
+        expect.objectContaining({ label: "Doctor", status: "ok" }),
+      ]),
+    });
+    expect(runCliAction).toHaveBeenCalledWith(["alpha", "doctor", "--json"]);
+  });
+
+  it("rejects unsupported channel checks before running doctor", async () => {
+    const runCliAction = vi.fn();
+    const server = await startTestServer({ runCliAction });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/channels/matrix/check?token=test-token`,
+      { method: "POST" },
+    );
+
+    expect(response.status).toBe(404);
+    expect(runCliAction).not.toHaveBeenCalled();
+  });
+
+  it("sends fixed channel test messages only for known channels", async () => {
+    const sendChannelTest = vi.fn().mockResolvedValue({
+      sandbox: "alpha",
+      channel: "telegram",
+      ok: true,
+      status: "sent",
+      checkedAt: "2026-05-14T12:03:00.000Z",
+      target: "Telegram DM",
+      detail: "Telegram accepted the test message.",
+      providerStatus: 200,
+    });
+    const server = await startTestServer({ sendChannelTest });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/channels/telegram/test-message?token=test-token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: "one-shot-token" }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sandbox: "alpha",
+      channel: "telegram",
+      ok: true,
+      status: "sent",
+      target: "Telegram DM",
+    });
+    expect(sendChannelTest).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "alpha" }),
+      expect.objectContaining({ name: "telegram" }),
+      "one-shot-token",
+    );
+
+    const unsupported = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/channels/matrix/test-message?token=test-token`,
+      { method: "POST" },
+    );
+    expect(unsupported.status).toBe(404);
+    expect(sendChannelTest).toHaveBeenCalledTimes(1);
   });
 
   it("runs fixed snapshot and rebuild preflight actions", async () => {
