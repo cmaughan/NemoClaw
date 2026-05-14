@@ -31,6 +31,21 @@ describe("buildDockerDriverGatewayEnv", () => {
       OPENSHELL_SSH_GATEWAY_PORT: "8080",
     });
   });
+
+  it("sets OPENSHELL_DRIVER_DIR on macOS when the VM driver is resolved", () => {
+    expect(
+      buildDockerDriverGatewayEnv({
+        platform: "darwin",
+        stateDir: "/tmp/nemoclaw-gateway",
+        getDockerSupervisorImage: () => "ghcr.io/nvidia/openshell/supervisor:0.0.39",
+        resolveVmDriverBin: () => "/opt/homebrew/opt/openshell/libexec/openshell-driver-vm",
+        resolveSandboxBin: () => null,
+      }),
+    ).toMatchObject({
+      OPENSHELL_DRIVERS: "vm",
+      OPENSHELL_DRIVER_DIR: "/opt/homebrew/opt/openshell/libexec",
+    });
+  });
 });
 
 describe("buildDockerGatewayDebEnvFile", () => {
@@ -52,6 +67,7 @@ describe("buildDockerGatewayDebEnvFile", () => {
         OPENSHELL_GRPC_ENDPOINT: "http://127.0.0.1:8990",
         OPENSHELL_SSH_GATEWAY_HOST: "127.0.0.1",
         OPENSHELL_SSH_GATEWAY_PORT: "8990",
+        OPENSHELL_DRIVER_DIR: "/opt/homebrew/opt/openshell/libexec",
         OPENSHELL_DOCKER_NETWORK_NAME: "openshell-docker",
         OPENSHELL_DOCKER_SUPERVISOR_IMAGE: "new",
       },
@@ -60,6 +76,7 @@ describe("buildDockerGatewayDebEnvFile", () => {
     expect(next).toContain("KEEP_ME=1\n");
     expect(next).toContain("OPENSHELL_BIND_ADDRESS=0.0.0.0\n");
     expect(next).toContain("OPENSHELL_SERVER_PORT=8990\n");
+    expect(next).toContain("OPENSHELL_DRIVER_DIR=/opt/homebrew/opt/openshell/libexec\n");
     expect(next).toContain("OPENSHELL_DOCKER_SUPERVISOR_IMAGE=new\n");
     expect(next).not.toContain("OPENSHELL_BIND_ADDRESS=127.0.0.1");
     expect(next).not.toContain("OPENSHELL_DOCKER_SUPERVISOR_IMAGE=old");

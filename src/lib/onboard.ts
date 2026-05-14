@@ -3151,8 +3151,14 @@ function resolveOpenShellGatewayBinary(): string | null {
   if (configured && configured.trim()) return path.resolve(configured.trim());
   const sibling = resolveSiblingBinary("openshell-gateway");
   if (sibling) return sibling;
+  const homebrewPrefixes = [
+    process.env.HOMEBREW_PREFIX,
+    "/opt/homebrew",
+    "/usr/local",
+  ].filter((prefix): prefix is string => Boolean(prefix && prefix.trim()));
   for (const candidate of [
     path.join(os.homedir(), ".local", "bin", "openshell-gateway"),
+    ...homebrewPrefixes.map((prefix) => path.join(prefix, "bin", "openshell-gateway")),
     "/usr/local/bin/openshell-gateway",
     "/usr/bin/openshell-gateway",
   ]) {
@@ -3184,7 +3190,17 @@ function resolveOpenShellVmDriverBinary(): string | null {
   }
   const sibling = resolveSiblingBinary("openshell-driver-vm");
   if (sibling) return sibling;
+  const homebrewPrefixes = [
+    process.env.HOMEBREW_PREFIX,
+    "/opt/homebrew",
+    "/usr/local",
+  ].filter((prefix): prefix is string => Boolean(prefix && prefix.trim()));
   for (const candidate of [
+    ...homebrewPrefixes.flatMap((prefix) => [
+      path.join(prefix, "opt", "openshell", "libexec", "openshell-driver-vm"),
+      path.join(prefix, "libexec", "openshell-driver-vm"),
+      path.join(prefix, "libexec", "openshell", "openshell-driver-vm"),
+    ]),
     path.join(os.homedir(), ".local", "bin", "openshell-driver-vm"),
     path.join(os.homedir(), ".local", "libexec", "openshell", "openshell-driver-vm"),
     "/usr/local/bin/openshell-driver-vm",

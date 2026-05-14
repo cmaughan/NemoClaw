@@ -116,13 +116,138 @@ version_gte() {
   return 0
 }
 
+homebrew_prefixes() {
+  if [ -n "${NEMOCLAW_OPENSHELL_HOMEBREW_PREFIXES:-}" ]; then
+    local IFS=:
+    local prefix
+    for prefix in $NEMOCLAW_OPENSHELL_HOMEBREW_PREFIXES; do
+      if [ -n "$prefix" ]; then
+        printf '%s\n' "$prefix"
+      fi
+    done
+    return 0
+  fi
+  if [ -n "${HOMEBREW_PREFIX:-}" ]; then
+    printf '%s\n' "$HOMEBREW_PREFIX"
+  fi
+  printf '%s\n' /opt/homebrew /usr/local
+}
+
+openshell_sibling_binary() {
+  local binary_name="$1"
+  local openshell_bin sibling
+  openshell_bin="$(command -v openshell 2>/dev/null || true)"
+  if [[ "$openshell_bin" = /* ]]; then
+    sibling="$(dirname "$openshell_bin")/$binary_name"
+    if [ -x "$sibling" ]; then
+      printf '%s\n' "$sibling"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+find_openshell_gateway_bin() {
+  local found prefix candidate
+  if found="$(openshell_sibling_binary openshell-gateway)"; then
+    printf '%s\n' "$found"
+    return 0
+  fi
+  if found="$(command -v openshell-gateway 2>/dev/null || true)" && [ -n "$found" ]; then
+    printf '%s\n' "$found"
+    return 0
+  fi
+  while IFS= read -r prefix; do
+    candidate="${prefix}/bin/openshell-gateway"
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done < <(homebrew_prefixes)
+  for candidate in \
+    "${HOME:-}/.local/bin/openshell-gateway" \
+    /usr/local/bin/openshell-gateway \
+    /usr/bin/openshell-gateway; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+find_openshell_sandbox_bin() {
+  local found candidate
+  if found="$(openshell_sibling_binary openshell-sandbox)"; then
+    printf '%s\n' "$found"
+    return 0
+  fi
+  if found="$(command -v openshell-sandbox 2>/dev/null || true)" && [ -n "$found" ]; then
+    printf '%s\n' "$found"
+    return 0
+  fi
+  for candidate in \
+    "${HOME:-}/.local/bin/openshell-sandbox" \
+    /usr/local/bin/openshell-sandbox \
+    /usr/bin/openshell-sandbox; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+find_macos_vm_driver_bin() {
+  local found prefix candidate
+  if [ -n "${OPENSHELL_DRIVER_DIR:-}" ]; then
+    candidate="${OPENSHELL_DRIVER_DIR}/openshell-driver-vm"
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+  if found="$(openshell_sibling_binary openshell-driver-vm)"; then
+    printf '%s\n' "$found"
+    return 0
+  fi
+  if found="$(command -v openshell-driver-vm 2>/dev/null || true)" && [ -n "$found" ]; then
+    printf '%s\n' "$found"
+    return 0
+  fi
+  while IFS= read -r prefix; do
+    for candidate in \
+      "${prefix}/opt/openshell/libexec/openshell-driver-vm" \
+      "${prefix}/libexec/openshell-driver-vm" \
+      "${prefix}/libexec/openshell/openshell-driver-vm"; do
+      if [ -x "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done
+  done < <(homebrew_prefixes)
+  for candidate in \
+    "${HOME:-}/.local/bin/openshell-driver-vm" \
+    "${HOME:-}/.local/libexec/openshell/openshell-driver-vm" \
+    /usr/local/bin/openshell-driver-vm \
+    /usr/local/libexec/openshell/openshell-driver-vm \
+    /usr/local/libexec/openshell-driver-vm \
+    /usr/bin/openshell-driver-vm; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 required_driver_bins_present() {
   case "$OS" in
     Linux)
-      command -v openshell-gateway >/dev/null 2>&1 && command -v openshell-sandbox >/dev/null 2>&1
+      find_openshell_gateway_bin >/dev/null 2>&1 && find_openshell_sandbox_bin >/dev/null 2>&1
       ;;
     Darwin)
-      command -v openshell-gateway >/dev/null 2>&1 && command -v openshell-driver-vm >/dev/null 2>&1
+      find_openshell_gateway_bin >/dev/null 2>&1 && find_macos_vm_driver_bin >/dev/null 2>&1
       ;;
     *)
       return 0
@@ -168,7 +293,7 @@ require_openshell_messaging_features() {
 }
 
 macos_vm_driver_bin() {
-  command -v openshell-driver-vm 2>/dev/null || true
+  find_macos_vm_driver_bin 2>/dev/null || true
 }
 
 macos_vm_driver_has_hypervisor_entitlement() {
