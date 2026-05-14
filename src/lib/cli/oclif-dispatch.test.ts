@@ -17,6 +17,11 @@ describe("resolveGlobalOclifDispatch", () => {
       commandId: "update",
       args: ["--check"],
     });
+    expect(resolveGlobalOclifDispatch("ui", ["--no-open"])).toEqual({
+      kind: "oclif",
+      commandId: "ui",
+      args: ["--no-open"],
+    });
     expect(resolveGlobalOclifDispatch("tunnel", ["start"])).toEqual({
       kind: "oclif",
       commandId: "tunnel:start",
