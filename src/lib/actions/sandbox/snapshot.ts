@@ -202,10 +202,10 @@ async function autoCreateSandboxFromSource(
   console.log(`  ${G}\u2713${R} Sandbox '${dstName}' created`);
 }
 
-// Returns true only when the gateway Docker container is confirmed running.
+// Returns true only when the OpenShell gateway API is confirmed connected.
 // `openshell sandbox list` reads a local registry and exits 0 even when the
-// gateway is stopped (#2673), so we probe the container directly instead.
-function probeDockerDriverGatewayRunning(): boolean {
+// gateway is stopped (#2673), so Docker/VM driver sandboxes use status instead.
+function probeOpenShellGatewayConnected(): boolean {
   const status = captureOpenshell(["status"], { ignoreError: true, timeout: 10000 });
   const clean = stripAnsi(status.output || "");
   return status.status === 0 && /^\s*Status:\s*Connected\b/im.test(clean);
@@ -213,8 +213,8 @@ function probeDockerDriverGatewayRunning(): boolean {
 
 function probeGatewayRunning(sandboxName?: string): boolean {
   const entry = sandboxName ? registry.getSandbox(sandboxName) : null;
-  if (entry?.openshellDriver === "docker") {
-    return probeDockerDriverGatewayRunning();
+  if (entry?.openshellDriver === "docker" || entry?.openshellDriver === "vm") {
+    return probeOpenShellGatewayConnected();
   }
   const container = `openshell-cluster-${NEMOCLAW_GATEWAY_NAME}`;
   const result = dockerInspect(

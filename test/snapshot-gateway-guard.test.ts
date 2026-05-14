@@ -110,6 +110,67 @@ function makeStoppedGatewayEnv(prefix: string): Record<string, string> {
   };
 }
 
+function makeConnectedVmGatewayEnv(prefix: string): Record<string, string> {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const localBin = path.join(home, "bin");
+  fs.mkdirSync(localBin, { recursive: true });
+
+  const registryDir = path.join(home, ".nemoclaw");
+  fs.mkdirSync(registryDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(registryDir, "sandboxes.json"),
+    JSON.stringify({
+      sandboxes: {
+        alpha: {
+          name: "alpha",
+          model: "test-model",
+          provider: "nvidia-prod",
+          gpuEnabled: false,
+          openshellDriver: "vm",
+          policies: [],
+        },
+      },
+      defaultSandbox: "alpha",
+    }),
+    { mode: 0o600 },
+  );
+
+  fs.writeFileSync(
+    path.join(localBin, "openshell"),
+    [
+      "#!/bin/sh",
+      'if [ "$1" = "status" ]; then',
+      '  printf "Server Status\\n\\n  Gateway: nemoclaw\\n  Server: http://127.0.0.1:8080\\n  Status: Connected\\n"',
+      "  exit 0",
+      "fi",
+      'if [ "$1" = "sandbox" ] && [ "$2" = "list" ]; then',
+      '  printf "NAME STATUS\\nalpha Ready\\n"',
+      "  exit 0",
+      "fi",
+      "exit 0",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+
+  fs.writeFileSync(
+    path.join(localBin, "docker"),
+    [
+      "#!/bin/sh",
+      'if [ "$1" = "inspect" ]; then',
+      '  echo "false"',
+      "  exit 0",
+      "fi",
+      "exit 0",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+
+  return {
+    HOME: home,
+    PATH: `${localBin}:${process.env.PATH ?? ""}`,
+  };
+}
+
 describe("snapshot gateway guard (#2673)", () => {
   it("snapshot restore rejects when gateway container is stopped", () => {
     const env = makeStoppedGatewayEnv("nemoclaw-snap-gw-restore-");
@@ -123,5 +184,13 @@ describe("snapshot gateway guard (#2673)", () => {
     const r = runCli("alpha snapshot create", env);
     expect(r.code).toBe(1);
     expect(r.out).toContain("Failed to query live sandbox state");
+  });
+
+  it("snapshot restore accepts connected macOS VM gateways without a Docker gateway container", () => {
+    const env = makeConnectedVmGatewayEnv("nemoclaw-snap-vm-gw-restore-");
+    const r = runCli("alpha snapshot restore s1", env);
+    expect(r.code).toBe(1);
+    expect(r.out).not.toContain("Failed to query live sandbox state");
+    expect(r.out).toContain("No snapshot matching 's1'");
   });
 });
