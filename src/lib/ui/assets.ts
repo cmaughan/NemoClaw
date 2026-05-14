@@ -144,7 +144,15 @@ export const UI_HTML = String.raw`<!doctype html>
       table-layout: fixed;
     }
 
+    .sandbox-table th:nth-child(1), .sandbox-table td:nth-child(1) { width: 20%; }
+    .sandbox-table th:nth-child(2), .sandbox-table td:nth-child(2) { width: 19%; }
+    .sandbox-table th:nth-child(3), .sandbox-table td:nth-child(3) { width: 12%; }
+    .sandbox-table th:nth-child(4), .sandbox-table td:nth-child(4) { width: 25%; }
+    .sandbox-table th:nth-child(5), .sandbox-table td:nth-child(5) { width: 12%; }
+    .sandbox-table th:nth-child(6), .sandbox-table td:nth-child(6) { width: 12%; }
+
     th, td {
+      min-width: 0;
       padding: 10px 12px;
       border-bottom: 1px solid var(--line);
       vertical-align: top;
@@ -179,7 +187,28 @@ export const UI_HTML = String.raw`<!doctype html>
     }
 
     .truncate {
+      display: block;
+      min-width: 0;
       overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .wrap-text {
+      display: block;
+      min-width: 0;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: normal;
+      line-height: 1.35;
+    }
+
+    .state-cell .chip {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      overflow: hidden;
+      text-align: center;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -425,14 +454,14 @@ export const UI_HTML = String.raw`<!doctype html>
             '<td><div class="name-cell"><div class="name-line"><span class="truncate">' + esc(sandbox.name) + '</span>' + (sandbox.isDefault ? chip("default", "good") : "") + '</div><span class="muted">' + esc(sandbox.agent) + '</span></div></td>',
             '<td><div class="truncate">' + esc(sandbox.model || "unknown") + '</div><div class="muted truncate">' + esc(sandbox.provider || "unknown") + '</div></td>',
             '<td class="wide-only">' + connected + '</td>',
-            '<td class="wide-only"><span class="truncate">' + esc(sandbox.policies.length ? sandbox.policies.join(", ") : "none") + '</span></td>',
+            '<td class="wide-only"><span class="wrap-text">' + esc(sandbox.policies.length ? sandbox.policies.join(", ") : "none") + '</span></td>',
             '<td>' + endpoint + '</td>',
-            '<td>' + warn + '</td>',
+            '<td class="state-cell">' + warn + '</td>',
             '</tr>'
           ].join("");
         }).join("");
         $("sandboxes").innerHTML = [
-          '<table>',
+          '<table class="sandbox-table">',
           '<thead><tr><th>Sandbox</th><th>Inference</th><th class="wide-only">Session</th><th class="wide-only">Policy</th><th>Endpoint</th><th>State</th></tr></thead>',
           '<tbody>' + rows + '</tbody>',
           '</table>'
@@ -480,7 +509,7 @@ export const UI_HTML = String.raw`<!doctype html>
       function renderPolicy(sandbox) {
         return [
           '<div class="kv">',
-          '<div>Applied</div><div>' + esc(sandbox.policies.length ? sandbox.policies.join(", ") : "none") + '</div>',
+          '<div>Applied</div><div><span class="wrap-text">' + esc(sandbox.policies.length ? sandbox.policies.join(", ") : "none") + '</span></div>',
           '<div>Live approvals</div><div><code class="mono">' + esc(overview.commands.openApprovals) + '</code></div>',
           '</div>',
           '<div class="actions">',
