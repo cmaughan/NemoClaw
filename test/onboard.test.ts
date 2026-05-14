@@ -505,6 +505,50 @@ network_policies:
     }
   });
 
+  it("resolves Homebrew opt libexec openshell-driver-vm for macOS gateway env", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-homebrew-driver-"));
+    const originalHomebrewPrefix = process.env.HOMEBREW_PREFIX;
+    const originalOpenshellBin = process.env.NEMOCLAW_OPENSHELL_BIN;
+    const originalDriverDir = process.env.OPENSHELL_DRIVER_DIR;
+    try {
+      const fakeBin = path.join(tmp, "bin");
+      const libexec = path.join(tmp, "homebrew", "opt", "openshell", "libexec");
+      fs.mkdirSync(fakeBin, { recursive: true });
+      fs.mkdirSync(libexec, { recursive: true });
+      fs.writeFileSync(path.join(fakeBin, "openshell"), "#!/usr/bin/env bash\nexit 0\n", {
+        mode: 0o755,
+      });
+      fs.writeFileSync(path.join(libexec, "openshell-driver-vm"), "#!/usr/bin/env bash\nexit 0\n", {
+        mode: 0o755,
+      });
+
+      process.env.HOMEBREW_PREFIX = path.join(tmp, "homebrew");
+      process.env.NEMOCLAW_OPENSHELL_BIN = path.join(fakeBin, "openshell");
+      delete process.env.OPENSHELL_DRIVER_DIR;
+
+      expect(getDockerDriverGatewayEnv("openshell 0.0.39", "darwin").OPENSHELL_DRIVER_DIR).toBe(
+        libexec,
+      );
+    } finally {
+      if (originalHomebrewPrefix === undefined) {
+        delete process.env.HOMEBREW_PREFIX;
+      } else {
+        process.env.HOMEBREW_PREFIX = originalHomebrewPrefix;
+      }
+      if (originalOpenshellBin === undefined) {
+        delete process.env.NEMOCLAW_OPENSHELL_BIN;
+      } else {
+        process.env.NEMOCLAW_OPENSHELL_BIN = originalOpenshellBin;
+      }
+      if (originalDriverDir === undefined) {
+        delete process.env.OPENSHELL_DRIVER_DIR;
+      } else {
+        process.env.OPENSHELL_DRIVER_DIR = originalDriverDir;
+      }
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("requires platform-specific standalone gateway binaries", () => {
     expect(
       areRequiredDockerDriverBinariesPresent(
