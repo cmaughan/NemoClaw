@@ -1166,6 +1166,11 @@ network_policies:
     }
   });
 
+  it("relaxes trusted rc files for macOS VM rootfs ownership repair", () => {
+    const dockerfile = fs.readFileSync(path.join(repoRoot, "Dockerfile"), "utf8");
+    assert.match(dockerfile, /chmod a\+rw /sandbox/\.bashrc /sandbox/\.profile/);
+  });
+
   it("patches the staged Dockerfile with Discord guild config for server workspaces", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-onboard-dockerfile-discord-"));
     const dockerfilePath = path.join(tmpDir, "Dockerfile");
