@@ -655,7 +655,38 @@ export const UI_HTML = String.raw`<!doctype html>
       }
 
       function renderSnapshots(sandbox) {
+        var snapshots = sandbox.snapshots || { count: 0, latest: null };
+        var snapshotChip = snapshots.error
+          ? chip("scan failed", "bad")
+          : snapshots.count > 0
+            ? chip(snapshots.count + " snapshot" + (snapshots.count === 1 ? "" : "s"), "good")
+            : chip("no snapshots", "warn");
+        var latest = snapshots.latest;
+        var latestText = latest
+          ? latest.version + (latest.name ? " " + latest.name : "") + " at " + latest.timestamp
+          : "none";
+        var pathText = latest ? latest.path : "none";
+        var nextText = snapshots.error
+          ? "Run snapshot list to inspect local backup metadata."
+          : snapshots.count > 0
+            ? "Run preflight, then copy the rebuild command when ready."
+            : "Create a snapshot before copying the rebuild command.";
         return [
+          '<div class="health-card">',
+          '<div class="health-head"><strong>Rebuild Guard</strong>' + snapshotChip + '</div>',
+          '<div class="health-grid">',
+          '<div>Latest</div><div><span class="wrap-text">' + esc(latestText) + '</span></div>',
+          '<div>Path</div><div><span class="wrap-text">' + esc(pathText) + '</span></div>',
+          '<div>Next</div><div><span class="wrap-text">' + esc(nextText) + '</span></div>',
+          '</div>',
+          '<div class="actions">',
+          '<button id="rebuild-preflight">Preflight Rebuild</button>',
+          '<button class="primary" id="create-snapshot">Create Snapshot</button>',
+          '<button id="run-snapshot-list">Run snapshot list</button>',
+          '<button data-copy="' + esc(sandbox.commands.rebuild) + '">Copy rebuild</button>',
+          '</div>',
+          renderCommandOutput(sandbox),
+          '</div>',
           '<div class="actions">',
           '<button data-copy="' + esc(sandbox.commands.snapshotList) + '">Copy snapshot list</button>',
           '<button data-copy="' + esc("nemoclaw " + sandbox.name + " snapshot create --name before-change") + '">Copy create snapshot</button>',
@@ -722,6 +753,21 @@ export const UI_HTML = String.raw`<!doctype html>
           });
       }
 
+      function createSnapshot(sandbox) {
+        commandOutputByName[sandbox.name] = { title: "Create Snapshot", pending: true };
+        renderDetail();
+        authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/actions/snapshot-create", { method: "POST" })
+          .then(function (result) {
+            commandOutputByName[sandbox.name] = { title: "Create Snapshot", result: result };
+            renderDetail();
+            load().catch(function () {});
+          })
+          .catch(function (err) {
+            commandOutputByName[sandbox.name] = { title: "Create Snapshot", result: { ok: false, status: null, stdout: "", stderr: err.message } };
+            renderDetail();
+          });
+      }
+
       function bindDetailActions(sandbox) {
         Array.prototype.forEach.call(document.querySelectorAll("[data-copy]"), function (button) {
           button.addEventListener("click", function () {
@@ -736,6 +782,12 @@ export const UI_HTML = String.raw`<!doctype html>
         if (runStatus) runStatus.addEventListener("click", function () { runSandboxAction(sandbox, "status", "Status"); });
         var runDoctor = $("run-doctor");
         if (runDoctor) runDoctor.addEventListener("click", function () { runSandboxAction(sandbox, "doctor", "Doctor"); });
+        var rebuildPreflight = $("rebuild-preflight");
+        if (rebuildPreflight) rebuildPreflight.addEventListener("click", function () { runSandboxAction(sandbox, "rebuild-preflight", "Rebuild Preflight"); });
+        var snapshotList = $("run-snapshot-list");
+        if (snapshotList) snapshotList.addEventListener("click", function () { runSandboxAction(sandbox, "snapshot-list", "Snapshot List"); });
+        var snapshotCreate = $("create-snapshot");
+        if (snapshotCreate) snapshotCreate.addEventListener("click", function () { createSnapshot(sandbox); });
         var startLogs = $("start-logs");
         if (startLogs) {
           startLogs.addEventListener("click", function () { startLogStream(sandbox.name); });

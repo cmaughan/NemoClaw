@@ -18,6 +18,7 @@ export interface UiSandboxSummary {
   messagingChannels: string[];
   disabledChannels: string[];
   warnings: string[];
+  snapshots: UiSnapshotSummary;
   commands: {
     connect: string;
     status: string;
@@ -62,6 +63,17 @@ export interface UiCommandResult {
   status: number | null;
   stdout: string;
   stderr: string;
+}
+
+export interface UiSnapshotSummary {
+  count: number;
+  latest: {
+    version: string;
+    name: string | null;
+    timestamp: string;
+    path: string;
+  } | null;
+  error?: string;
 }
 
 export interface UiForwardStatus {

@@ -18,6 +18,7 @@ import type { UiCommandResult, UiForwardStatus, UiLiveHealth, UiOverview, UiSand
 const JSON_BODY_LIMIT_BYTES = 16 * 1024;
 const COMMAND_TIMEOUT_MS = 120_000;
 const FORWARD_PROBE_TIMEOUT_MS = 2_500;
+const PREFLIGHT_OUTPUT_LIMIT = 6_000;
 const DEFAULT_ROOT = path.resolve(__dirname, "..", "..", "..");
 type LogChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 
@@ -347,6 +348,67 @@ function liveHealthForSandbox(sandbox: UiSandboxSummary, forward: UiForwardStatu
   };
 }
 
+function truncateOutput(value: string, limit = PREFLIGHT_OUTPUT_LIMIT): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}\n...[truncated ${value.length - limit} chars]`;
+}
+
+function preflightSnapshotName(): string {
+  return `ui-preflight-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+}
+
+function commandSummaryLine(label: string, result: UiCommandResult): string {
+  return `${label}: ${result.ok ? "ok" : `exit ${result.status ?? "unknown"}`}`;
+}
+
+function hasNoSnapshots(result: UiCommandResult): boolean {
+  return /No snapshots found/i.test(`${result.stdout}\n${result.stderr}`);
+}
+
+function rebuildPreflightResult(input: {
+  sandbox: UiSandboxSummary;
+  status: UiCommandResult;
+  doctor: UiCommandResult;
+  snapshotList: UiCommandResult;
+}): UiCommandResult {
+  const { sandbox, status, doctor, snapshotList } = input;
+  const noSnapshots = hasNoSnapshots(snapshotList);
+  const ok = status.ok && doctor.ok && snapshotList.ok && !noSnapshots;
+  let next = `Copy rebuild command when ready: ${sandbox.commands.rebuild}`;
+  if (!status.ok) {
+    next = "Fix the status failure before rebuilding.";
+  } else if (!doctor.ok) {
+    next = "Review doctor output before rebuilding.";
+  } else if (noSnapshots) {
+    next = "Create Snapshot before copying the rebuild command.";
+  }
+
+  const sections = [
+    `Rebuild preflight for '${sandbox.name}'`,
+    commandSummaryLine("status", status),
+    commandSummaryLine("doctor", doctor),
+    noSnapshots ? "snapshots: none recorded" : commandSummaryLine("snapshots", snapshotList),
+    `next: ${next}`,
+  ];
+  const stderrSections = [
+    !status.ok && status.stdout ? `[status stdout]\n${truncateOutput(status.stdout)}` : "",
+    status.stderr ? `[status stderr]\n${truncateOutput(status.stderr)}` : "",
+    !doctor.ok && doctor.stdout ? `[doctor stdout]\n${truncateOutput(doctor.stdout)}` : "",
+    doctor.stderr ? `[doctor stderr]\n${truncateOutput(doctor.stderr)}` : "",
+    !snapshotList.ok && snapshotList.stdout
+      ? `[snapshot stdout]\n${truncateOutput(snapshotList.stdout)}`
+      : "",
+    snapshotList.stderr ? `[snapshot stderr]\n${truncateOutput(snapshotList.stderr)}` : "",
+  ].filter(Boolean);
+
+  return {
+    ok,
+    status: ok ? 0 : 1,
+    stdout: sections.join("\n"),
+    stderr: stderrSections.join("\n\n"),
+  };
+}
+
 function parseTail(value: string | null): number {
   if (!value) return 200;
   if (!/^\d+$/.test(value)) return 200;
@@ -508,8 +570,43 @@ async function handleApiRequest(
       if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
       await readJsonBody(req);
       const action = parts[4];
-      if (action !== "status" && action !== "doctor") {
+      if (
+        action !== "status" &&
+        action !== "doctor" &&
+        action !== "snapshot-list" &&
+        action !== "snapshot-create" &&
+        action !== "rebuild-preflight"
+      ) {
         sendJson(res, 404, { error: "Unsupported sandbox action." });
+        return;
+      }
+      if (action === "snapshot-list") {
+        const result = await opts.runCliAction([sandboxName, "snapshot", "list"]);
+        sendJson(res, 200, result);
+        return;
+      }
+      if (action === "snapshot-create") {
+        const result = await opts.runCliAction([
+          sandboxName,
+          "snapshot",
+          "create",
+          "--name",
+          preflightSnapshotName(),
+        ]);
+        sendJson(res, 200, result);
+        return;
+      }
+      if (action === "rebuild-preflight") {
+        const overview = await opts.overviewProvider();
+        const sandbox = overview.sandboxes.find((entry) => entry.name === sandboxName);
+        if (!sandbox) {
+          sendJson(res, 404, { error: `Sandbox '${sandboxName}' is not in the UI overview.` });
+          return;
+        }
+        const status = await opts.runCliAction([sandboxName, "status"]);
+        const doctor = await opts.runCliAction([sandboxName, "doctor"]);
+        const snapshotList = await opts.runCliAction([sandboxName, "snapshot", "list"]);
+        sendJson(res, 200, rebuildPreflightResult({ sandbox, status, doctor, snapshotList }));
         return;
       }
       const result = await opts.runCliAction([sandboxName, action]);

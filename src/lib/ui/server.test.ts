@@ -31,6 +31,15 @@ const overview: UiOverview = {
       messagingChannels: [],
       disabledChannels: [],
       warnings: [],
+      snapshots: {
+        count: 1,
+        latest: {
+          version: "v1",
+          name: "before-upgrade",
+          timestamp: "2026-05-14T11-00-00-000Z",
+          path: "/tmp/nemoclaw/rebuild-backups/alpha/2026-05-14T11-00-00-000Z",
+        },
+      },
       commands: {
         connect: "nemoclaw alpha connect",
         status: "nemoclaw alpha status",
@@ -186,6 +195,89 @@ describe("NemoClaw UI server", () => {
     );
     expect(arbitrary.status).toBe(404);
     expect(runCliAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs fixed snapshot and rebuild preflight actions", async () => {
+    const runCliAction = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 0,
+        stdout: "Snapshot v2 created",
+        stderr: "",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 0,
+        stdout: "Status OK",
+        stderr: "",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 0,
+        stdout: "Doctor OK",
+        stderr: "",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 0,
+        stdout: "Snapshots for alpha",
+        stderr: "",
+      });
+    const server = await startTestServer({ runCliAction });
+
+    const create = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/actions/snapshot-create?token=test-token`,
+      { method: "POST" },
+    );
+    expect(create.status).toBe(200);
+    expect(runCliAction).toHaveBeenCalledWith([
+      "alpha",
+      "snapshot",
+      "create",
+      "--name",
+      expect.stringMatching(/^ui-preflight-\d{4}-\d{2}-\d{2}T/),
+    ]);
+
+    const preflight = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/actions/rebuild-preflight?token=test-token`,
+      { method: "POST" },
+    );
+    expect(preflight.status).toBe(200);
+    await expect(preflight.json()).resolves.toMatchObject({
+      ok: true,
+      status: 0,
+      stdout: expect.stringContaining("Copy rebuild command when ready"),
+    });
+    expect(runCliAction).toHaveBeenCalledWith(["alpha", "status"]);
+    expect(runCliAction).toHaveBeenCalledWith(["alpha", "doctor"]);
+    expect(runCliAction).toHaveBeenCalledWith(["alpha", "snapshot", "list"]);
+  });
+
+  it("marks rebuild preflight incomplete when no snapshot is recorded", async () => {
+    const runCliAction = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 0, stdout: "Status OK", stderr: "" })
+      .mockResolvedValueOnce({ ok: true, status: 0, stdout: "Doctor OK", stderr: "" })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 0,
+        stdout: "No snapshots found for 'alpha'.",
+        stderr: "",
+      });
+    const server = await startTestServer({ runCliAction });
+
+    const preflight = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/actions/rebuild-preflight?token=test-token`,
+      { method: "POST" },
+    );
+
+    expect(preflight.status).toBe(200);
+    await expect(preflight.json()).resolves.toMatchObject({
+      ok: false,
+      status: 1,
+      stdout: expect.stringContaining("Create Snapshot before copying the rebuild command"),
+    });
   });
 
   it("repairs the forward through recover and returns the post-repair probe", async () => {

@@ -4,7 +4,8 @@
 import { CLI_NAME } from "../cli/branding";
 import { redactFull } from "../security/redact";
 import * as registry from "../state/registry";
-import type { UiOverview, UiSandboxSummary } from "./model";
+import * as sandboxState from "../state/sandbox";
+import type { UiOverview, UiSandboxSummary, UiSnapshotSummary } from "./model";
 
 function clean(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -91,6 +92,30 @@ function commandsForSandbox(name: string): UiSandboxSummary["commands"] {
   };
 }
 
+function snapshotsForSandbox(name: string): UiSnapshotSummary {
+  try {
+    const backups = sandboxState.listBackups(name);
+    const latest = backups.at(-1);
+    return {
+      count: backups.length,
+      latest: latest
+        ? {
+            version: `v${latest.snapshotVersion}`,
+            name: clean(latest.name) || null,
+            timestamp: latest.timestamp,
+            path: redactFull(latest.backupPath),
+          }
+        : null,
+    };
+  } catch (error) {
+    return {
+      count: 0,
+      latest: null,
+      error: redactFull(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
 export async function buildUiOverview(_rootDir: string): Promise<UiOverview> {
   // Deliberately registry-first. The UI server must stay alive even when
   // OpenShell is missing, down, or wedged. CLI status helpers are allowed to
@@ -140,6 +165,7 @@ export async function buildUiOverview(_rootDir: string): Promise<UiOverview> {
         messagingChannels,
         disabledChannels,
       }),
+      snapshots: snapshotsForSandbox(sandbox.name),
       commands: commandsForSandbox(sandbox.name),
     };
   });
