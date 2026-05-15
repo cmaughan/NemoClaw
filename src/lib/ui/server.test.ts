@@ -24,7 +24,7 @@ const overview: UiOverview = {
       model: "nvidia/nemotron",
       provider: "nvidia-prod",
       inferenceHealth: "configured",
-      gatewayHealth: "healthy",
+      gatewayHealth: "connected (nemoclaw)",
       dashboardPort: 18789,
       dashboardUrl: "http://127.0.0.1:18789/",
       endpointLabel: "Dashboard",
@@ -158,6 +158,23 @@ async function startTestServer(overrides: Parameters<typeof startUiServer>[0] = 
   return running;
 }
 
+function overviewWithStaleVersion(): UiOverview {
+  return {
+    ...overview,
+    sandboxes: overview.sandboxes.map((sandbox) => ({
+      ...sandbox,
+      version: sandbox.version
+        ? {
+            ...sandbox.version,
+            target: "2026.5.15",
+            stale: true,
+            state: "stale",
+          }
+        : sandbox.version,
+    })),
+  };
+}
+
 afterEach(async () => {
   if (running) {
     await running.close();
@@ -256,6 +273,46 @@ describe("NemoClaw UI server", () => {
     expect(probeForward).toHaveBeenCalledWith(expect.objectContaining({ name: "alpha" }));
   });
 
+  it("opens dashboard endpoints with the gateway token when available", async () => {
+    const fetchGatewayAuthToken = vi.fn(() => "secret token");
+    const server = await startTestServer({ fetchGatewayAuthToken });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/endpoint?token=test-token`,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      url: "http://127.0.0.1:18789/#token=secret%20token",
+      result: {
+        ok: true,
+        commands: ["nemoclaw alpha gateway-token --quiet"],
+        stdout: "Gateway token retrieved; opening authenticated endpoint.",
+      },
+    });
+    expect(fetchGatewayAuthToken).toHaveBeenCalledWith("alpha");
+  });
+
+  it("opens dashboard endpoints without a token when the token is unavailable", async () => {
+    const fetchGatewayAuthToken = vi.fn(() => null);
+    const server = await startTestServer({ fetchGatewayAuthToken });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/endpoint?token=test-token`,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      url: "http://127.0.0.1:18789/",
+      result: {
+        ok: false,
+        commands: ["nemoclaw alpha gateway-token --quiet"],
+        stdout: "Gateway token unavailable; opening endpoint without a token.",
+      },
+    });
+    expect(fetchGatewayAuthToken).toHaveBeenCalledWith("alpha");
+  });
+
   it("runs fixed status and doctor actions without accepting arbitrary commands", async () => {
     const runCliAction = vi.fn().mockResolvedValue({
       ok: false,
@@ -270,7 +327,11 @@ describe("NemoClaw UI server", () => {
       { method: "POST" },
     );
     expect(doctor.status).toBe(200);
-    await expect(doctor.json()).resolves.toMatchObject({ ok: false, status: 2 });
+    await expect(doctor.json()).resolves.toMatchObject({
+      ok: false,
+      status: 2,
+      commands: ["nemoclaw alpha doctor"],
+    });
     expect(runCliAction).toHaveBeenCalledWith(["alpha", "doctor"]);
 
     const arbitrary = await fetch(
@@ -371,6 +432,7 @@ describe("NemoClaw UI server", () => {
         expect.objectContaining({ label: "Registry", status: "ok" }),
         expect.objectContaining({ label: "Doctor", status: "ok" }),
       ]),
+      command: { commands: ["nemoclaw alpha doctor --json"] },
     });
     expect(runCliAction).toHaveBeenCalledWith(["alpha", "doctor", "--json"]);
   });
@@ -466,6 +528,9 @@ describe("NemoClaw UI server", () => {
       { method: "POST" },
     );
     expect(create.status).toBe(200);
+    await expect(create.json()).resolves.toMatchObject({
+      commands: [expect.stringMatching(/^nemoclaw alpha snapshot create --name ui-preflight-\d{4}-\d{2}-\d{2}T/)],
+    });
     expect(runCliAction).toHaveBeenCalledWith([
       "alpha",
       "snapshot",
@@ -482,6 +547,11 @@ describe("NemoClaw UI server", () => {
     await expect(preflight.json()).resolves.toMatchObject({
       ok: true,
       status: 0,
+      commands: [
+        "nemoclaw alpha status",
+        "nemoclaw alpha doctor",
+        "nemoclaw alpha snapshot list",
+      ],
       stdout: expect.stringContaining("Copy rebuild command when ready"),
     });
     expect(runCliAction).toHaveBeenCalledWith(["alpha", "status"]);
@@ -507,6 +577,9 @@ describe("NemoClaw UI server", () => {
       },
     );
     expect(restore.status).toBe(200);
+    await expect(restore.json()).resolves.toMatchObject({
+      commands: ["nemoclaw alpha snapshot restore v1 --to bravo"],
+    });
     expect(runCliAction).toHaveBeenCalledWith([
       "alpha",
       "snapshot",
@@ -551,6 +624,87 @@ describe("NemoClaw UI server", () => {
       status: 1,
       stdout: expect.stringContaining("Create Snapshot before copying the rebuild command"),
     });
+  });
+
+  it("runs upgrade only after rebuild preflight passes", async () => {
+    const runCliAction = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 0, stdout: "Status OK", stderr: "" })
+      .mockResolvedValueOnce({ ok: true, status: 0, stdout: "Doctor OK", stderr: "" })
+      .mockResolvedValueOnce({ ok: true, status: 0, stdout: "Snapshots for alpha", stderr: "" })
+      .mockResolvedValueOnce({ ok: true, status: 0, stdout: "Rebuilt alpha", stderr: "" });
+    const server = await startTestServer({
+      runCliAction,
+      overviewProvider: async () => overviewWithStaleVersion(),
+    });
+
+    const upgrade = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/actions/upgrade?token=test-token`,
+      { method: "POST" },
+    );
+
+    expect(upgrade.status).toBe(200);
+    await expect(upgrade.json()).resolves.toMatchObject({
+      ok: true,
+      status: 0,
+      commands: [
+        "nemoclaw alpha status",
+        "nemoclaw alpha doctor",
+        "nemoclaw alpha snapshot list",
+        "nemoclaw alpha rebuild --yes",
+      ],
+      stdout: expect.stringContaining("[rebuild]\nRebuilt alpha"),
+    });
+    expect(runCliAction).toHaveBeenCalledWith(["alpha", "status"]);
+    expect(runCliAction).toHaveBeenCalledWith(["alpha", "doctor"]);
+    expect(runCliAction).toHaveBeenCalledWith(["alpha", "snapshot", "list"]);
+    expect(runCliAction).toHaveBeenCalledWith(["alpha", "rebuild", "--yes"]);
+  });
+
+  it("skips upgrade rebuild when preflight fails", async () => {
+    const runCliAction = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 0, stdout: "Status OK", stderr: "" })
+      .mockResolvedValueOnce({ ok: true, status: 0, stdout: "Doctor OK", stderr: "" })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 0,
+        stdout: "No snapshots found for 'alpha'.",
+        stderr: "",
+      });
+    const server = await startTestServer({
+      runCliAction,
+      overviewProvider: async () => overviewWithStaleVersion(),
+    });
+
+    const upgrade = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/actions/upgrade?token=test-token`,
+      { method: "POST" },
+    );
+
+    expect(upgrade.status).toBe(200);
+    await expect(upgrade.json()).resolves.toMatchObject({
+      ok: false,
+      stdout: expect.stringContaining("Rebuild skipped because preflight did not pass"),
+    });
+    expect(runCliAction).not.toHaveBeenCalledWith(["alpha", "rebuild", "--yes"]);
+  });
+
+  it("skips upgrade before preflight when the sandbox is current", async () => {
+    const runCliAction = vi.fn();
+    const server = await startTestServer({ runCliAction });
+
+    const upgrade = await fetch(
+      `http://${server.host}:${server.port}/api/sandboxes/alpha/actions/upgrade?token=test-token`,
+      { method: "POST" },
+    );
+
+    expect(upgrade.status).toBe(200);
+    await expect(upgrade.json()).resolves.toMatchObject({
+      ok: false,
+      stdout: "Upgrade skipped because the sandbox is not stale.",
+    });
+    expect(runCliAction).not.toHaveBeenCalled();
   });
 
   it("repairs the forward through recover and returns the post-repair probe", async () => {

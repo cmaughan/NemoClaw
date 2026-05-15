@@ -43,6 +43,7 @@ export interface UiServerOptions {
   sandboxExists?: (sandboxName: string) => boolean;
   runCliAction?: (args: string[]) => Promise<UiCommandResult>;
   probeForward?: (sandbox: UiSandboxSummary) => Promise<UiForwardStatus>;
+  fetchGatewayAuthToken?: (sandboxName: string) => string | null;
   sendChannelTest?: (
     sandbox: UiSandboxSummary,
     channel: UiChannelSummary,
@@ -164,6 +165,45 @@ function cliPath(rootDir: string): string {
   return path.join(rootDir, "bin", "nemoclaw.js");
 }
 
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:=@%+,-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function cliCommandLine(args: string[]): string {
+  return [CLI_NAME, ...args.map(shellQuote)].join(" ");
+}
+
+function commandLines(result: UiCommandResult): string[] {
+  return Array.isArray(result.commands) ? result.commands.filter(Boolean) : [];
+}
+
+function withCommand(args: string[], result: UiCommandResult): UiCommandResult {
+  const command = cliCommandLine(args);
+  return {
+    ...result,
+    commands: [command, ...commandLines(result).filter((entry) => entry !== command)],
+  };
+}
+
+function fetchGatewayAuthToken(sandboxName: string): string | null {
+  try {
+    const onboard = require("../onboard") as {
+      fetchGatewayAuthTokenFromSandbox?: (name: string) => string | null;
+    };
+    return onboard.fetchGatewayAuthTokenFromSandbox?.(sandboxName) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function withDashboardToken(baseUrl: string, token: string | null): string {
+  if (!token) return baseUrl;
+  const url = new URL(baseUrl);
+  url.hash = `token=${encodeURIComponent(token)}`;
+  return url.toString();
+}
+
 function validateSandboxName(name: string): string {
   if (!name || typeof name !== "string") {
     throw new Error(`sandbox name is required. Allowed format: ${NAME_ALLOWED_FORMAT}.`);
@@ -210,6 +250,7 @@ export function runCliAction(rootDir: string, args: string[]): Promise<UiCommand
         resolve({
           ok: status === 0,
           status,
+          commands: [cliCommandLine(args)],
           stdout: redactFull(stdout || ""),
           stderr: redactFull(stderr || ""),
         });
@@ -430,8 +471,41 @@ function rebuildPreflightResult(input: {
   return {
     ok,
     status: ok ? 0 : 1,
+    commands: [
+      ...commandLines(status),
+      ...commandLines(doctor),
+      ...commandLines(snapshotList),
+    ],
     stdout: sections.join("\n"),
     stderr: stderrSections.join("\n\n"),
+  };
+}
+
+function rebuildUpgradeResult(preflight: UiCommandResult, rebuild?: UiCommandResult): UiCommandResult {
+  if (!preflight.ok || !rebuild) {
+    return {
+      ok: false,
+      status: preflight.status ?? 1,
+      commands: commandLines(preflight),
+      stdout: `[preflight]\n${preflight.stdout}\n\n[upgrade]\nRebuild skipped because preflight did not pass.`,
+      stderr: preflight.stderr,
+    };
+  }
+
+  return {
+    ok: rebuild.ok,
+    status: rebuild.status,
+    commands: [...commandLines(preflight), ...commandLines(rebuild)],
+    stdout: [
+      `[preflight]\n${preflight.stdout}`,
+      `[rebuild]\n${rebuild.stdout || "(no output)"}`,
+    ].join("\n\n"),
+    stderr: [
+      preflight.stderr ? `[preflight]\n${preflight.stderr}` : "",
+      rebuild.stderr ? `[rebuild]\n${rebuild.stderr}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   };
 }
 
@@ -714,6 +788,7 @@ async function handleApiRequest(
     sandboxExists: (sandboxName: string) => boolean;
     runCliAction: (args: string[]) => Promise<UiCommandResult>;
     probeForward: (sandbox: UiSandboxSummary) => Promise<UiForwardStatus>;
+    fetchGatewayAuthToken: (sandboxName: string) => string | null;
     sendChannelTest: (
       sandbox: UiSandboxSummary,
       channel: UiChannelSummary,
@@ -727,6 +802,8 @@ async function handleApiRequest(
     sendJson(res, 400, { error: "Invalid URL path." });
     return;
   }
+  const runCli = async (args: string[]): Promise<UiCommandResult> =>
+    withCommand(args, await opts.runCliAction(args));
 
   if (req.method === "GET" && parts.length === 2 && parts[0] === "api" && parts[1] === "overview") {
     sendJson(res, 200, await opts.overviewProvider());
@@ -737,15 +814,15 @@ async function handleApiRequest(
     await readJsonBody(req);
     const action = parts[2];
     if (action === "inference-get") {
-      sendJson(res, 200, await opts.runCliAction(["inference", "get"]));
+      sendJson(res, 200, await runCli(["inference", "get"]));
       return;
     }
     if (action === "upgrade-check") {
-      sendJson(res, 200, await opts.runCliAction(["upgrade-sandboxes", "--check"]));
+      sendJson(res, 200, await runCli(["upgrade-sandboxes", "--check"]));
       return;
     }
     if (action === "update-check") {
-      sendJson(res, 200, await opts.runCliAction(["update", "--check"]));
+      sendJson(res, 200, await runCli(["update", "--check"]));
       return;
     }
     sendJson(res, 404, { error: "Unsupported global action." });
@@ -760,6 +837,54 @@ async function handleApiRequest(
       const overview = await opts.overviewProvider();
       const sandbox = overview.sandboxes.find((entry) => entry.name === sandboxName);
       sendJson(res, 200, { sandbox });
+      return;
+    }
+
+    if (req.method === "GET" && parts.length === 4 && parts[3] === "endpoint") {
+      if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
+      const overview = await opts.overviewProvider();
+      const sandbox = overview.sandboxes.find((entry) => entry.name === sandboxName);
+      if (!sandbox) {
+        sendJson(res, 404, { error: `Sandbox '${sandboxName}' is not in the UI overview.` });
+        return;
+      }
+      if (!sandbox.dashboardUrl) {
+        sendJson(res, 404, { error: `Sandbox '${sandboxName}' does not have an endpoint URL.` });
+        return;
+      }
+      if ((sandbox.agent || "").toLowerCase() !== "openclaw") {
+        sendJson(res, 200, {
+          url: sandbox.dashboardUrl,
+          result: {
+            ok: true,
+            status: 0,
+            commands: [],
+            stdout: "Opening endpoint; no OpenClaw gateway token is required.",
+            stderr: "",
+          },
+        });
+        return;
+      }
+
+      const command = cliCommandLine([sandboxName, "gateway-token", "--quiet"]);
+      let token: string | null = null;
+      try {
+        token = opts.fetchGatewayAuthToken(sandboxName);
+      } catch {
+        token = null;
+      }
+      sendJson(res, 200, {
+        url: withDashboardToken(sandbox.dashboardUrl, token),
+        result: {
+          ok: Boolean(token),
+          status: token ? 0 : 1,
+          commands: [command],
+          stdout: token
+            ? "Gateway token retrieved; opening authenticated endpoint."
+            : "Gateway token unavailable; opening endpoint without a token.",
+          stderr: token ? "" : `Could not retrieve the gateway auth token for sandbox '${sandboxName}'.`,
+        },
+      });
       return;
     }
 
@@ -807,7 +932,7 @@ async function handleApiRequest(
         sendJson(res, 404, { error: "Unsupported channel." });
         return;
       }
-      const doctor = await opts.runCliAction([sandboxName, "doctor", "--json"]);
+      const doctor = await runCli([sandboxName, "doctor", "--json"]);
       sendJson(res, 200, channelCheckResult({ sandbox, channel, doctor }));
       return;
     }
@@ -820,7 +945,7 @@ async function handleApiRequest(
     ) {
       if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
       await readJsonBody(req);
-      sendJson(res, 200, await opts.runCliAction([sandboxName, "policy-list"]));
+      sendJson(res, 200, await runCli([sandboxName, "policy-list"]));
       return;
     }
 
@@ -835,7 +960,7 @@ async function handleApiRequest(
       await readJsonBody(req);
       try {
         const args = policyMutationArgs(sandboxName, parts[4], parts[5]);
-        sendJson(res, 200, await opts.runCliAction(args));
+        sendJson(res, 200, await runCli(args));
       } catch (error) {
         sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
       }
@@ -851,7 +976,7 @@ async function handleApiRequest(
       if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
       const body = await readJsonBody(req);
       try {
-        sendJson(res, 200, await opts.runCliAction(restoreSnapshotArgs(sandboxName, body)));
+        sendJson(res, 200, await runCli(restoreSnapshotArgs(sandboxName, body)));
       } catch (error) {
         sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
       }
@@ -894,18 +1019,19 @@ async function handleApiRequest(
         action !== "share-status" &&
         action !== "snapshot-list" &&
         action !== "snapshot-create" &&
-        action !== "rebuild-preflight"
+        action !== "rebuild-preflight" &&
+        action !== "upgrade"
       ) {
         sendJson(res, 404, { error: "Unsupported sandbox action." });
         return;
       }
       if (action === "snapshot-list") {
-        const result = await opts.runCliAction([sandboxName, "snapshot", "list"]);
+        const result = await runCli([sandboxName, "snapshot", "list"]);
         sendJson(res, 200, result);
         return;
       }
       if (action === "snapshot-create") {
-        const result = await opts.runCliAction([
+        const result = await runCli([
           sandboxName,
           "snapshot",
           "create",
@@ -916,7 +1042,7 @@ async function handleApiRequest(
         return;
       }
       if (action === "share-status") {
-        const result = await opts.runCliAction([sandboxName, "share", "status"]);
+        const result = await runCli([sandboxName, "share", "status"]);
         sendJson(res, 200, result);
         return;
       }
@@ -927,13 +1053,41 @@ async function handleApiRequest(
           sendJson(res, 404, { error: `Sandbox '${sandboxName}' is not in the UI overview.` });
           return;
         }
-        const status = await opts.runCliAction([sandboxName, "status"]);
-        const doctor = await opts.runCliAction([sandboxName, "doctor"]);
-        const snapshotList = await opts.runCliAction([sandboxName, "snapshot", "list"]);
+        const status = await runCli([sandboxName, "status"]);
+        const doctor = await runCli([sandboxName, "doctor"]);
+        const snapshotList = await runCli([sandboxName, "snapshot", "list"]);
         sendJson(res, 200, rebuildPreflightResult({ sandbox, status, doctor, snapshotList }));
         return;
       }
-      const result = await opts.runCliAction([sandboxName, action]);
+      if (action === "upgrade") {
+        const overview = await opts.overviewProvider();
+        const sandbox = overview.sandboxes.find((entry) => entry.name === sandboxName);
+        if (!sandbox) {
+          sendJson(res, 404, { error: `Sandbox '${sandboxName}' is not in the UI overview.` });
+          return;
+        }
+        if (sandbox.version?.state !== "stale") {
+          sendJson(res, 200, {
+            ok: false,
+            status: 1,
+            stdout: "Upgrade skipped because the sandbox is not stale.",
+            stderr: "",
+          });
+          return;
+        }
+        const status = await runCli([sandboxName, "status"]);
+        const doctor = await runCli([sandboxName, "doctor"]);
+        const snapshotList = await runCli([sandboxName, "snapshot", "list"]);
+        const preflight = rebuildPreflightResult({ sandbox, status, doctor, snapshotList });
+        if (!preflight.ok) {
+          sendJson(res, 200, rebuildUpgradeResult(preflight));
+          return;
+        }
+        const rebuild = await runCli([sandboxName, "rebuild", "--yes"]);
+        sendJson(res, 200, rebuildUpgradeResult(preflight, rebuild));
+        return;
+      }
+      const result = await runCli([sandboxName, action]);
       sendJson(res, 200, result);
       return;
     }
@@ -941,7 +1095,7 @@ async function handleApiRequest(
     if (req.method === "POST" && parts.length === 5 && parts[3] === "forward" && parts[4] === "repair") {
       if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
       await readJsonBody(req);
-      const result = await opts.runCliAction([sandboxName, "recover"]);
+      const result = await runCli([sandboxName, "recover"]);
       const overview = await opts.overviewProvider();
       const sandbox = overview.sandboxes.find((entry) => entry.name === sandboxName);
       if (!sandbox) {
@@ -961,7 +1115,7 @@ async function handleApiRequest(
     if (req.method === "POST" && parts.length === 4 && parts[3] === "recover") {
       if (!validateSandboxForRequest(sandboxName, res, opts.sandboxExists)) return;
       await readJsonBody(req);
-      const result = await opts.runCliAction([sandboxName, "recover"]);
+      const result = await runCli([sandboxName, "recover"]);
       sendJson(res, result.ok ? 200 : 500, result);
       return;
     }
@@ -1013,6 +1167,7 @@ function normalizeOptions(options: UiServerOptions): Required<UiServerOptions> {
     sandboxExists: options.sandboxExists ?? ((sandboxName) => registry.getSandbox(sandboxName) !== null),
     runCliAction: options.runCliAction ?? ((args) => runCliAction(rootDir, args)),
     probeForward: options.probeForward ?? probeForward,
+    fetchGatewayAuthToken: options.fetchGatewayAuthToken ?? fetchGatewayAuthToken,
     sendChannelTest:
       options.sendChannelTest ??
       ((sandbox, channel, tokenOverride) =>

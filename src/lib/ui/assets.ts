@@ -29,8 +29,10 @@ export const UI_HTML = String.raw`<!doctype html>
     body {
       margin: 0;
       min-width: 320px;
+      min-height: 100vh;
       background: var(--bg);
       color: var(--text);
+      overflow: hidden;
     }
 
     header {
@@ -42,8 +44,6 @@ export const UI_HTML = String.raw`<!doctype html>
       padding: 14px 20px;
       border-bottom: 1px solid var(--line);
       background: var(--panel);
-      position: sticky;
-      top: 0;
       z-index: 4;
     }
 
@@ -83,17 +83,36 @@ export const UI_HTML = String.raw`<!doctype html>
       background: var(--accent);
     }
     button.danger { color: var(--bad); }
+    button.inline-action {
+      min-height: 24px;
+      padding: 2px 7px;
+      font-size: 12px;
+    }
+    button.subtle-action {
+      background: transparent;
+      color: var(--muted);
+    }
     button:disabled {
       cursor: not-allowed;
       opacity: 0.55;
     }
 
+    .app-shell {
+      --console-height: 180px;
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 64px);
+      min-height: 0;
+    }
+
     main {
       --sandbox-pane-width: minmax(420px, 1fr);
       --detail-pane-width: minmax(360px, 520px);
+      flex: 1 1 auto;
       display: grid;
       grid-template-columns: var(--sandbox-pane-width) 10px var(--detail-pane-width);
       gap: 8px;
+      min-height: 0;
       padding: 16px;
     }
 
@@ -106,7 +125,7 @@ export const UI_HTML = String.raw`<!doctype html>
     }
 
     .column-splitter {
-      min-height: calc(100vh - 98px);
+      min-height: 0;
       border: 1px solid var(--line);
       border-radius: 999px;
       background: var(--panel-soft);
@@ -283,8 +302,7 @@ export const UI_HTML = String.raw`<!doctype html>
     .detail {
       display: flex;
       flex-direction: column;
-      height: calc(100vh - 98px);
-      min-height: calc(100vh - 98px);
+      min-height: 0;
     }
 
     .detail-body {
@@ -321,9 +339,11 @@ export const UI_HTML = String.raw`<!doctype html>
     }
 
     .tab.active {
-      background: var(--panel);
-      border-color: var(--line);
-      border-bottom-color: var(--panel);
+      background: #eef7e8;
+      border-color: #a7d08c;
+      border-bottom-color: #eef7e8;
+      color: var(--accent-strong);
+      font-weight: 700;
       margin-bottom: -1px;
     }
 
@@ -415,6 +435,23 @@ export const UI_HTML = String.raw`<!doctype html>
       align-items: center;
     }
 
+    .inline-row {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tab-stack {
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+    }
+
+    .health-stack .console-card {
+      margin-top: auto;
+    }
+
     .channel-description {
       margin: -2px 0 0;
       color: var(--muted);
@@ -426,34 +463,43 @@ export const UI_HTML = String.raw`<!doctype html>
       flex: 1 1 220px;
     }
 
-    .command-output {
-      max-height: 260px;
+    .console-card {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fbfcfb;
+    }
+
+    .console-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 38px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfb;
+    }
+
+    .console-head h2 {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .console-output {
+      flex: 1 1 auto;
+      min-height: 96px;
       overflow: auto;
       margin: 0;
-      padding: 10px;
-      border-radius: 6px;
+      padding: 12px;
       background: var(--code);
       color: #e5e7eb;
       white-space: pre-wrap;
-      overflow-wrap: anywhere;
       word-break: break-word;
-    }
-
-    .command-list {
-      display: grid;
-      gap: 8px;
-      margin-top: 12px;
-    }
-
-    .command {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 8px;
-      align-items: center;
-      padding: 8px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #fbfcfb;
     }
 
     pre.log {
@@ -527,6 +573,31 @@ export const UI_HTML = String.raw`<!doctype html>
       text-align: center;
     }
 
+    .loading-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 110px;
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #cdd6ca;
+      border-top-color: var(--accent);
+      border-radius: 999px;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .spinner { animation: none; }
+    }
+
     .warnings {
       display: grid;
       gap: 8px;
@@ -543,6 +614,8 @@ export const UI_HTML = String.raw`<!doctype html>
     }
 
     @media (max-width: 900px) {
+      body { overflow: auto; }
+      .app-shell { height: auto; min-height: calc(100vh - 64px); }
       main { grid-template-columns: 1fr; }
       .column-splitter { display: none; }
       .detail { height: auto; min-height: auto; }
@@ -558,40 +631,43 @@ export const UI_HTML = String.raw`<!doctype html>
     </div>
   </header>
 
-  <main id="layout">
-    <section id="sandbox-pane">
-      <div class="section-head">
-        <h2>Sandboxes</h2>
-        <span id="updated" class="muted mono"></span>
-      </div>
-      <div id="summary" class="summary"></div>
-      <div id="global-output"></div>
-      <div id="sandboxes"></div>
-    </section>
+  <div id="app-shell" class="app-shell">
+    <main id="layout">
+      <section id="sandbox-pane">
+        <div class="section-head">
+          <h2>Sandboxes</h2>
+          <span id="updated" class="muted mono"></span>
+        </div>
+        <div id="sandboxes">
+          <div class="empty loading-state"><span class="spinner" aria-hidden="true"></span><span>Loading sandboxes...</span></div>
+        </div>
+      </section>
 
-    <div
-      id="column-splitter"
-      class="column-splitter"
-      role="separator"
-      aria-label="Resize sandbox and detail panes"
-      aria-orientation="vertical"
-      aria-valuemin="320"
-      aria-valuemax="320"
-      aria-valuenow="420"
-      tabindex="0"
-    ></div>
+      <div
+        id="column-splitter"
+        class="column-splitter"
+        role="separator"
+        aria-label="Resize sandbox and detail panes"
+        aria-orientation="vertical"
+        aria-valuemin="320"
+        aria-valuemax="320"
+        aria-valuenow="420"
+        tabindex="0"
+      ></div>
 
-    <section class="detail">
-      <div class="tabs">
-        <button class="tab active" data-tab="health">Health</button>
-        <button class="tab" data-tab="logs">Logs</button>
-        <button class="tab" data-tab="policy">Policy</button>
-        <button class="tab" data-tab="channels">Channels</button>
-        <button class="tab" data-tab="snapshots">Snapshots</button>
-      </div>
-      <div id="detail" class="detail-body empty">Select a sandbox.</div>
-    </section>
-  </main>
+      <section class="detail">
+        <div class="tabs">
+          <button class="tab active" data-tab="health">Health</button>
+          <button class="tab" data-tab="logs">Logs</button>
+          <button class="tab" data-tab="policy">Policy</button>
+          <button class="tab" data-tab="channels">Channels</button>
+          <button class="tab" data-tab="snapshots">Snapshots</button>
+        </div>
+        <div id="detail" class="detail-body empty">Select a sandbox.</div>
+      </section>
+    </main>
+
+  </div>
 
   <script>
     (function () {
@@ -599,8 +675,10 @@ export const UI_HTML = String.raw`<!doctype html>
 
       var token = new URLSearchParams(window.location.search).get("token") || "";
       var overview = null;
+      var overviewLoading = false;
       var selectedName = null;
       var activeTab = "health";
+      var selectionSerial = 0;
       var eventSource = null;
       var logLines = [];
       var liveHealthByName = {};
@@ -610,7 +688,8 @@ export const UI_HTML = String.raw`<!doctype html>
       var channelCheckLoadingByName = {};
       var channelTestByName = {};
       var channelTestLoadingByName = {};
-      var commandOutputByName = {};
+      var selectedChannelBySandbox = {};
+      var consoleEntry = null;
       var SPLIT_STORAGE_KEY = "nemoclaw.ui.sandboxPaneWidth";
       var MIN_SANDBOX_PANE_WIDTH = 320;
       var MIN_DETAIL_PANE_WIDTH = 320;
@@ -770,37 +849,114 @@ export const UI_HTML = String.raw`<!doctype html>
         return overview.sandboxes.find(function (sandbox) { return sandbox.name === selectedName; }) || null;
       }
 
-      function renderSummary() {
-        if (!overview) return;
-        var parts = [];
-        parts.push(chip(overview.sandboxes.length + " sandbox" + (overview.sandboxes.length === 1 ? "" : "es"), ""));
-        if (overview.gatewayHealth) {
-          parts.push(chip("gateway " + overview.gatewayHealth.state, overview.gatewayHealth.healthy ? "good" : "bad"));
-        } else {
-          parts.push(chip("gateway unknown", "warn"));
-        }
-        if (overview.liveInference && overview.liveInference.model) {
-          parts.push(chip("model " + overview.liveInference.model, ""));
-        }
-        parts.push(chip(overview.commands.openApprovals, "warn"));
-        parts.push('<button data-global-action="upgrade-check">Upgrade check</button>');
-        $("summary").innerHTML = parts.join("");
-        $("updated").textContent = overview.generatedAt ? new Date(overview.generatedAt).toLocaleTimeString() : "";
-        renderGlobalOutput();
+      function currentSelectionContext(sandbox) {
+        return { sandboxName: sandbox.name, serial: selectionSerial };
       }
 
-      function renderGlobalOutput() {
-        var target = $("global-output");
-        if (!target) return;
-        var entry = commandOutputByName.__global;
-        if (!entry) {
-          target.innerHTML = "";
-          return;
+      function isCurrentSelection(name, serial) {
+        return selectedName === name && selectionSerial === serial;
+      }
+
+      function commandOutputText(entry) {
+        if (!entry) return "No command output yet.";
+        if (entry.pending) return entry.title + "\nrunning...";
+        var result = entry.result || {};
+        var status = result.ok ? "ok" : "exit " + (result.status == null ? "unknown" : result.status);
+        var body = [];
+        if (Array.isArray(result.commands) && result.commands.length) {
+          body.push("commands:\n" + result.commands.map(function (command) { return "$ " + command; }).join("\n"));
         }
-        target.innerHTML = renderCommandOutput({ name: "__global" });
+        if (result.stdout) body.push(result.stdout);
+        if (result.stderr) body.push(result.stderr);
+        return entry.title + " (" + status + ")\n\n" + (body.join("\n\n") || "(no output)");
+      }
+
+      function renderConsole() {
+        var output = $("console-output");
+        if (!output) return;
+        output.textContent = commandOutputText(consoleEntry);
+        output.scrollTop = output.scrollHeight;
+      }
+
+      function renderConsoleCard() {
+        return [
+          '<div class="console-card">',
+          '<div class="console-head">',
+          '<h2>Console</h2>',
+          '<button id="clear-console">Clear</button>',
+          '</div>',
+          '<pre id="console-output" class="console-output">' + esc(commandOutputText(consoleEntry)) + '</pre>',
+          '</div>'
+        ].join("");
+      }
+
+      function setConsolePending(title) {
+        consoleEntry = { title: title, pending: true };
+        renderConsole();
+      }
+
+      function setConsoleResult(title, result) {
+        consoleEntry = { title: title, result: result };
+        renderConsole();
+      }
+
+      function setConsoleError(title, err) {
+        setConsoleResult(title, { ok: false, status: null, stdout: "", stderr: err.message || String(err) });
+      }
+
+      function setConsoleResultIfCurrent(context, title, result) {
+        if (!isCurrentSelection(context.sandboxName, context.serial)) return;
+        setConsoleResult(title, result);
+      }
+
+      function setConsoleErrorIfCurrent(context, title, err) {
+        if (!isCurrentSelection(context.sandboxName, context.serial)) return;
+        setConsoleError(title, err);
+      }
+
+      function renderDetailIfCurrent(context) {
+        if (isCurrentSelection(context.sandboxName, context.serial)) renderDetail();
+      }
+
+      function resetSandboxTabState(name) {
+        consoleEntry = null;
+        delete liveHealthByName[name];
+        delete liveHealthAttemptedByName[name];
+        stopLogs(true);
+      }
+
+      function selectSandboxName(name) {
+        if (!name || name === selectedName) return;
+        selectedName = name;
+        selectionSerial += 1;
+        resetSandboxTabState(name);
+        renderAll();
+        load().catch(function () {});
+      }
+
+      function renderSummary() {
+        if (!overview) return;
+        $("updated").textContent = overviewLoading
+          ? "Refreshing..."
+          : overview.generatedAt ? new Date(overview.generatedAt).toLocaleTimeString() : "";
+      }
+
+      function renderLoadingState(message) {
+        return '<div class="empty loading-state"><span class="spinner" aria-hidden="true"></span><span>' + esc(message) + '</span></div>';
+      }
+
+      function updateRefreshState() {
+        var button = $("refresh");
+        if (!button) return;
+        button.disabled = overviewLoading;
+        button.textContent = overviewLoading ? "Refreshing..." : "Refresh";
       }
 
       function renderSandboxTable() {
+        if (overviewLoading && (!overview || overview.sandboxes.length === 0)) {
+          $("sandboxes").innerHTML = renderLoadingState("Loading sandboxes...");
+          return;
+        }
         if (!overview || overview.sandboxes.length === 0) {
           $("sandboxes").innerHTML = '<div class="empty">No sandboxes registered.</div>';
           return;
@@ -815,10 +971,13 @@ export const UI_HTML = String.raw`<!doctype html>
           var policyLabel = policyCount ? policyCount + " polic" + (policyCount === 1 ? "y" : "ies") : "none";
           var policyTitle = policyCount ? sandbox.policies.join(", ") : "none";
           var endpoint = sandbox.dashboardUrl
-            ? '<a class="truncate" href="' + esc(sandbox.dashboardUrl) + '" target="_blank" rel="noreferrer">' + esc(sandbox.dashboardUrl) + '</a>'
+            ? '<a class="truncate" href="' + esc(sandbox.dashboardUrl) + '" data-endpoint-open="' + esc(sandbox.name) + '" target="_blank" rel="noreferrer">' + esc(sandbox.dashboardUrl) + '</a>'
             : '<span class="muted">none</span>';
           var phase = sandbox.phase || "registered";
           var currentVersion = versionLabel(sandbox.version && sandbox.version.current);
+          var targetVersion = versionLabel(sandbox.version && sandbox.version.target);
+          var upgradeDisabled = !sandbox.version || sandbox.version.state !== "stale" ? " disabled" : "";
+          var targetValue = '<span class="truncate">' + esc(targetVersion) + '</span><button class="inline-action" data-sandbox-action="upgrade"' + upgradeDisabled + '>Upgrade</button>';
           var defaultValue = '<label class="readonly-check"><input type="checkbox" disabled' + (sandbox.isDefault ? " checked" : "") + '><span>' + (sandbox.isDefault ? "yes" : "no") + '</span></label>';
           return [
             '<div class="sandbox-row" role="button" tabindex="0" data-name="' + esc(sandbox.name) + '" data-selected="' + String(sandbox.name === selectedName) + '">',
@@ -826,13 +985,15 @@ export const UI_HTML = String.raw`<!doctype html>
             '<div class="sandbox-kv">',
             sandboxField("Agent", '<span class="truncate">' + esc(sandbox.agent || "unknown") + '</span>'),
             sandboxField("Is Default", defaultValue),
+            sandboxField("Gateway", esc(sandbox.gatewayHealth)),
             sandboxField("Phase", esc(phase)),
             sandboxField("Session", esc(connected)),
             sandboxField("Policy", '<span class="truncate" title="' + esc(policyTitle) + '">' + esc(policyLabel) + '</span>'),
             sandboxField("Endpoint", endpoint),
             sandboxField("Inference", '<span class="truncate">' + esc(sandbox.model || "unknown") + '</span>'),
             sandboxField("Provider", '<span class="truncate">' + esc(sandbox.provider || "unknown") + '</span>'),
-            sandboxField("Version", esc(currentVersion)),
+            sandboxField("Current", esc(currentVersion)),
+            sandboxField("Target", targetValue),
             sandboxField("State", esc(state)),
             '</div>',
             '</div>'
@@ -844,19 +1005,47 @@ export const UI_HTML = String.raw`<!doctype html>
           '</div>'
         ].join("");
         function selectRow(row) {
-          selectedName = row.getAttribute("data-name");
-          stopLogs();
-          renderAll();
+          selectSandboxName(row.getAttribute("data-name") || "");
         }
         Array.prototype.forEach.call(document.querySelectorAll(".sandbox-row"), function (row) {
           row.addEventListener("click", function (event) {
-            if (event.target && event.target.closest && event.target.closest("a")) return;
+            if (event.target && event.target.closest && event.target.closest("a, button, input, label")) return;
             selectRow(row);
           });
           row.addEventListener("keydown", function (event) {
             if (event.key !== "Enter" && event.key !== " ") return;
             event.preventDefault();
             selectRow(row);
+          });
+        });
+        bindSandboxTableActions();
+      }
+
+      function bindSandboxTableActions() {
+        var target = $("sandboxes");
+        if (!target) return;
+        Array.prototype.forEach.call(target.querySelectorAll("[data-endpoint-open]"), function (link) {
+          link.addEventListener("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var name = link.getAttribute("data-endpoint-open") || "";
+            var sandbox = overview && overview.sandboxes.find(function (entry) { return entry.name === name; });
+            if (!sandbox || !sandbox.dashboardUrl) return;
+            if (name !== selectedName) selectSandboxName(name);
+            openEndpoint(sandbox);
+          });
+        });
+        Array.prototype.forEach.call(target.querySelectorAll("[data-sandbox-action]"), function (button) {
+          button.addEventListener("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var row = button.closest(".sandbox-row");
+            var name = row ? row.getAttribute("data-name") : selectedName;
+            var sandbox = overview && overview.sandboxes.find(function (entry) { return entry.name === name; });
+            if (!sandbox) return;
+            if (name && name !== selectedName) selectSandboxName(name);
+            var action = button.getAttribute("data-sandbox-action") || "";
+            runSandboxAction(sandbox, action, actionLabel(action));
           });
         });
       }
@@ -895,41 +1084,6 @@ export const UI_HTML = String.raw`<!doctype html>
         if (version.state === "stale") return "upgrade ready";
         if (version.state === "unmanaged") return "unmanaged";
         return "check version";
-      }
-
-      function versionDetectionLabel(version) {
-        if (!version) return "not checked";
-        if (version.detectionMethod === "registry") return "cached";
-        if (version.detectionMethod === "ssh-exec") return "live probe";
-        return "not checked";
-      }
-
-      function versionNextText(version) {
-        if (!version) return "Run doctor to inspect the sandbox version.";
-        if (version.error) return "Version metadata unavailable: " + version.error;
-        if (version.state === "stale") return "Rebuild when ready to pick up the pinned version.";
-        if (version.state === "unknown") return "Run doctor to probe and cache the sandbox version.";
-        if (version.state === "unmanaged") return "No pinned agent version is declared for this agent.";
-        return "No version rebuild needed.";
-      }
-
-      function renderVersionReadiness(sandbox) {
-        var version = sandbox.version || null;
-        var command = version && version.command ? version.command : "";
-        return [
-          '<div class="health-card">',
-          '<div class="health-head"><strong>Version Readiness</strong>' + chip(versionChipLabel(version), versionChipKind(version)) + '</div>',
-          '<div class="health-grid">',
-          '<div>Current</div><div>' + esc(versionLabel(version && version.current)) + '</div>',
-          '<div>Target</div><div>' + esc(versionLabel(version && version.target)) + '</div>',
-          '<div>Detected</div><div>' + esc(versionDetectionLabel(version)) + '</div>',
-          '<div>Next</div><div><span class="wrap-text">' + esc(versionNextText(version)) + '</span></div>',
-          '</div>',
-          command
-            ? '<div class="actions health-actions"><button data-copy="' + esc(command) + '">Copy ' + esc(version && version.state === "stale" ? "rebuild" : "doctor") + '</button></div>'
-            : "",
-          '</div>'
-        ].join("");
       }
 
       function channelKey(sandbox, channel) {
@@ -991,12 +1145,7 @@ export const UI_HTML = String.raw`<!doctype html>
         return "";
       }
 
-      function renderChannelCheck(sandbox, channel) {
-        var key = channelKey(sandbox, channel);
-        var check = channelCheckByName[key];
-        if (channelCheckLoadingByName[key]) {
-          return '<pre class="command-output">Channel check for ' + esc(channel.name) + "\nrunning..." + '</pre>';
-        }
+      function channelCheckText(check) {
         if (!check) return "";
         var lines = [
           "Channel check for " + check.channel + " (" + check.status + ")",
@@ -1007,15 +1156,10 @@ export const UI_HTML = String.raw`<!doctype html>
           lines.push(item.label + ": " + item.status + " - " + item.detail);
           if (item.hint) lines.push("  hint: " + item.hint);
         });
-        return '<pre class="command-output">' + esc(lines.join("\n")) + '</pre>';
+        return lines.join("\n");
       }
 
-      function renderChannelTest(sandbox, channel) {
-        var key = channelKey(sandbox, channel);
-        var test = channelTestByName[key];
-        if (channelTestLoadingByName[key]) {
-          return '<pre class="command-output">Test message for ' + esc(channel.name) + "\nsending..." + '</pre>';
-        }
+      function channelTestText(test) {
         if (!test) return "";
         var lines = [
           "Test message for " + test.channel + " (" + test.status + ")",
@@ -1024,21 +1168,27 @@ export const UI_HTML = String.raw`<!doctype html>
           "detail: " + test.detail
         ];
         if (test.error) lines.push("error: " + test.error);
-        return '<pre class="command-output">' + esc(lines.join("\n")) + '</pre>';
+        return lines.join("\n");
       }
 
-      function renderCommandOutput(sandbox) {
-        var entry = commandOutputByName[sandbox.name];
-        if (!entry) return "";
-        if (entry.pending) {
-          return '<pre class="command-output">' + esc(entry.title + "\nrunning...") + '</pre>';
-        }
-        var result = entry.result || {};
-        var status = result.ok ? "ok" : "exit " + (result.status == null ? "unknown" : result.status);
-        var body = [];
-        if (result.stdout) body.push(result.stdout);
-        if (result.stderr) body.push(result.stderr);
-        return '<pre class="command-output">' + esc(entry.title + " (" + status + ")\n\n" + (body.join("\n\n") || "(no output)")) + '</pre>';
+      function checkCommandResult(check) {
+        var command = check && check.command ? check.command : null;
+        return {
+          ok: !!(check && check.ok),
+          status: command && command.status != null ? command.status : check && check.ok ? 0 : 1,
+          commands: command && Array.isArray(command.commands) ? command.commands : [],
+          stdout: channelCheckText(check),
+          stderr: command && command.stderr ? command.stderr : ""
+        };
+      }
+
+      function testCommandResult(test) {
+        return {
+          ok: !!(test && test.ok),
+          status: test && test.ok ? 0 : 1,
+          stdout: channelTestText(test),
+          stderr: test && test.error ? test.error : ""
+        };
       }
 
       function renderLiveHealth(sandbox) {
@@ -1058,16 +1208,15 @@ export const UI_HTML = String.raw`<!doctype html>
           '<div class="health-head"><strong>Live Health</strong>' + chip(liveHealthLoadingByName[sandbox.name] ? "checking" : liveChipLabel(live), liveChipKind(live)) + '</div>',
           '<div class="health-grid">',
           '<div>Forward</div><div><span class="wrap-text">' + esc(forwardText) + '</span></div>',
-          '<div>Checked</div><div>' + esc(checked) + '</div>',
+          '<div>Checked</div><div><span class="inline-row"><span>' + esc(checked) + '</span><button id="check-live" class="inline-action subtle-action">Check</button></span></div>',
           '<div>Next</div><div><span class="wrap-text">' + esc(nextText) + '</span></div>',
           '</div>',
           '<div class="actions health-actions">',
-          '<button id="check-live">Check Live</button>',
           '<button class="primary" id="repair-forward"' + repairDisabled + '>Repair Forward</button>',
           '<button id="run-status">Run status</button>',
           '<button id="run-doctor">Run doctor</button>',
+          '<button data-sandbox-action="share-status">Share status</button>',
           '</div>',
-          renderCommandOutput(sandbox),
           '</div>'
         ].join("");
       }
@@ -1077,27 +1226,12 @@ export const UI_HTML = String.raw`<!doctype html>
           ? '<div class="warnings">' + sandbox.warnings.map(function (w) { return '<div class="warning">' + esc(w) + '</div>'; }).join("") + '</div>'
           : "";
         return [
-          '<div class="kv">',
-          '<div>Gateway</div><div>' + esc(sandbox.gatewayHealth) + '</div>',
-          '</div>',
+          '<div class="tab-stack health-stack">',
           warnings,
-          renderVersionReadiness(sandbox),
           renderLiveHealth(sandbox),
-          '<div class="actions">',
-          '<button data-copy="' + esc(sandbox.commands.status) + '">Copy status command</button>',
-          '<button data-copy="' + esc(sandbox.commands.doctor) + '">Copy doctor command</button>',
-          '<button data-sandbox-action="share-status">Share status</button>',
-          '<button data-copy="' + esc(sandbox.commands.inferenceSet) + '">Copy inference set</button>',
-          '</div>',
-          renderCommands(sandbox)
+          renderConsoleCard(),
+          '</div>'
         ].join("");
-      }
-
-      function renderCommands(sandbox) {
-        return '<div class="command-list">' + Object.keys(sandbox.commands).map(function (key) {
-          var command = sandbox.commands[key];
-          return '<div class="command"><code class="mono truncate">' + esc(command) + '</code><button data-copy="' + esc(command) + '">Copy</button></div>';
-        }).join("") + '</div>';
       }
 
       function renderPolicy(sandbox) {
@@ -1118,9 +1252,7 @@ export const UI_HTML = String.raw`<!doctype html>
               '<div class="muted wrap-text">' + esc(preset.description || preset.source || "") + '</div>',
               '<div class="muted mono wrap-text">' + esc(preset.file || "") + '</div>',
               '<div class="actions health-actions">',
-              '<button data-policy-action="add-dry-run" data-policy-preset="' + esc(preset.name) + '">Preview add</button>',
               '<button data-policy-action="add" data-policy-preset="' + esc(preset.name) + '"' + (preset.appliedRegistry ? " disabled" : "") + '>Add</button>',
-              '<button data-policy-action="remove-dry-run" data-policy-preset="' + esc(preset.name) + '"' + (!preset.appliedRegistry ? " disabled" : "") + '>Preview remove</button>',
               '<button class="danger" data-policy-action="remove" data-policy-preset="' + esc(preset.name) + '"' + (!preset.appliedRegistry ? " disabled" : "") + '>Remove</button>',
               '</div>',
               '</div>'
@@ -1134,14 +1266,36 @@ export const UI_HTML = String.raw`<!doctype html>
           '<div>Live approvals</div><div><code class="mono">' + esc(overview.commands.openApprovals) + '</code></div>',
           '<div>Custom preset</div><div><code class="mono wrap-text">' + esc(policy.customPresetCommand || "") + '</code></div>',
           '</div>',
-          '<div class="actions">',
-          '<button id="check-policy-live">Check live policy</button>',
-          '<button data-copy="' + esc(sandbox.commands.policyList) + '">Copy policy-list</button>',
-          '<button data-copy="' + esc(overview.commands.openApprovals) + '">Copy approvals command</button>',
-          '<button data-copy="' + esc(policy.customPresetCommand || "") + '">Copy custom preset command</button>',
+          '<div class="item-list">' + rows + '</div>'
+        ].join("");
+      }
+
+      function renderChannelCard(sandbox, channel) {
+        var key = channelKey(sandbox, channel);
+        var testDisabled = !channel.test || !channel.test.available || channelTestLoadingByName[key] ? " disabled" : "";
+        var testTitle = channel.test && channel.test.unavailableReason ? ' title="' + esc(channel.test.unavailableReason) + '"' : "";
+        var tokenInput = channel.test && channel.test.available
+          ? '<input class="channel-token-input mono" type="password" data-channel-token="' + esc(channel.name) + '" placeholder="Optional ' + esc(channelTokenEnv(channel)) + ' for this test" autocomplete="off" autocapitalize="off" spellcheck="false">'
+          : "";
+        return [
+          '<div class="health-card">',
+          '<div class="health-head"><strong>' + esc(channel.name) + '</strong>' + chip(channelChipLabel(channel), channelChipKind(channel)) + '</div>',
+          '<div class="channel-description">' + esc(channel.description) + '</div>',
+          '<div class="health-grid">',
+          '<div>Bridge</div><div><span class="wrap-text">' + esc(channel.active ? "enabled" : channel.paused ? "paused" : "not configured") + '</span></div>',
+          '<div>Policy</div><div>' + esc(channel.policyApplied ? "applied" : "not applied") + '</div>',
+          '<div>Tokens</div><div><span class="wrap-text">' + esc(channelCredentialText(channel)) + '</span></div>',
+          '<div>Access</div><div><span class="wrap-text">' + esc(channelConfigText(channel)) + '</span></div>',
+          '<div>Overlap</div><div><span class="wrap-text">' + esc(channelOverlapText(channel)) + '</span></div>',
+          '<div>Test</div><div><span class="wrap-text">' + esc(channel.test && channel.test.available ? channel.test.target : channel.test && channel.test.unavailableReason ? channel.test.unavailableReason : "unavailable") + '</span></div>',
+          '<div>Next</div><div><span class="wrap-text">' + esc(channel.next) + '</span></div>',
           '</div>',
-          '<div class="item-list">' + rows + '</div>',
-          renderCommandOutput(sandbox)
+          '<div class="actions health-actions">',
+          tokenInput,
+          '<button data-channel-check="' + esc(channel.name) + '"' + (channelCheckLoadingByName[key] ? " disabled" : "") + '>Check</button>',
+          '<button data-channel-test="' + esc(channel.name) + '"' + testDisabled + testTitle + '>Send test message</button>',
+          '</div>',
+          '</div>'
         ].join("");
       }
 
@@ -1150,56 +1304,24 @@ export const UI_HTML = String.raw`<!doctype html>
         if (channels.length === 0) {
           return [
             '<div class="empty">No channel metadata available.</div>',
-            '<div class="actions">',
-            '<button data-copy="' + esc(sandbox.commands.channelsList) + '">Copy channels list</button>',
-            '</div>'
+            renderConsoleCard()
           ].join("");
         }
+        var selectedChannel = selectedChannelBySandbox[sandbox.name];
+        if (!channels.some(function (channel) { return channel.name === selectedChannel; })) {
+          selectedChannel = channels[0].name;
+          selectedChannelBySandbox[sandbox.name] = selectedChannel;
+        }
+        var channel = channels.find(function (entry) { return entry.name === selectedChannel; }) || channels[0];
+        var options = channels.map(function (entry) {
+          return '<option value="' + esc(entry.name) + '"' + (entry.name === channel.name ? " selected" : "") + '>' + esc(entry.name) + '</option>';
+        }).join("");
         return [
-          '<div class="channel-list">',
-          channels.map(function (channel) {
-            var key = channelKey(sandbox, channel);
-            var primaryCommand = channel.state === "paused"
-              ? channel.commands.start
-              : channel.configured
-                ? channel.commands.stop
-                : channel.commands.add;
-            var primaryLabel = channel.state === "paused" ? "Copy start" : channel.configured ? "Copy stop" : "Copy add";
-            var testDisabled = !channel.test || !channel.test.available || channelTestLoadingByName[key] ? " disabled" : "";
-            var testTitle = channel.test && channel.test.unavailableReason ? ' title="' + esc(channel.test.unavailableReason) + '"' : "";
-            var tokenInput = channel.test && channel.test.available
-              ? '<input class="channel-token-input mono" type="password" data-channel-token="' + esc(channel.name) + '" placeholder="Optional ' + esc(channelTokenEnv(channel)) + ' for this test" autocomplete="off" autocapitalize="off" spellcheck="false">'
-              : "";
-            return [
-              '<div class="health-card">',
-              '<div class="health-head"><strong>' + esc(channel.name) + '</strong>' + chip(channelChipLabel(channel), channelChipKind(channel)) + '</div>',
-              '<div class="channel-description">' + esc(channel.description) + '</div>',
-              '<div class="health-grid">',
-              '<div>Bridge</div><div><span class="wrap-text">' + esc(channel.active ? "enabled" : channel.paused ? "paused" : "not configured") + '</span></div>',
-              '<div>Policy</div><div>' + esc(channel.policyApplied ? "applied" : "not applied") + '</div>',
-              '<div>Tokens</div><div><span class="wrap-text">' + esc(channelCredentialText(channel)) + '</span></div>',
-              '<div>Access</div><div><span class="wrap-text">' + esc(channelConfigText(channel)) + '</span></div>',
-              '<div>Overlap</div><div><span class="wrap-text">' + esc(channelOverlapText(channel)) + '</span></div>',
-              '<div>Test</div><div><span class="wrap-text">' + esc(channel.test && channel.test.available ? channel.test.target : channel.test && channel.test.unavailableReason ? channel.test.unavailableReason : "unavailable") + '</span></div>',
-              '<div>Next</div><div><span class="wrap-text">' + esc(channel.next) + '</span></div>',
-              '</div>',
-              '<div class="actions health-actions">',
-              tokenInput,
-              '<button data-channel-check="' + esc(channel.name) + '"' + (channelCheckLoadingByName[key] ? " disabled" : "") + '>Check</button>',
-              '<button data-channel-test="' + esc(channel.name) + '"' + testDisabled + testTitle + '>Send test message</button>',
-              '<button data-copy="' + esc(primaryCommand) + '">' + esc(primaryLabel) + '</button>',
-              '<button data-copy="' + esc(channel.commands.remove) + '">Copy remove</button>',
-              '<button data-copy="' + esc(channel.commands.rebuild) + '">Copy rebuild</button>',
-              '</div>',
-              renderChannelCheck(sandbox, channel),
-              renderChannelTest(sandbox, channel),
-              '</div>'
-            ].join("");
-          }).join(""),
+          '<div class="tool-row">',
+          '<select id="channel-select" aria-label="Channel">' + options + '</select>',
           '</div>',
-          '<div class="actions">',
-          '<button data-copy="' + esc(sandbox.commands.channelsList) + '">Copy channels list</button>',
-          '</div>'
+          renderChannelCard(sandbox, channel),
+          renderConsoleCard()
         ].join("");
       }
 
@@ -1220,8 +1342,8 @@ export const UI_HTML = String.raw`<!doctype html>
           ? "Run snapshot list to inspect local backup metadata."
           : version && version.state === "stale"
             ? snapshots.count > 0
-              ? "Run preflight, then copy the rebuild command to upgrade."
-              : "Create a snapshot before copying the rebuild command to upgrade."
+              ? "Use Upgrade from the sandbox table when ready; it will run preflight first."
+              : "Create a snapshot before using Upgrade."
             : snapshots.count > 0
               ? "Run preflight before any manual rebuild."
               : "Create a snapshot before any manual rebuild.";
@@ -1235,8 +1357,6 @@ export const UI_HTML = String.raw`<!doctype html>
               '<div class="actions health-actions">',
               '<button data-snapshot-restore="' + esc(snapshot.selector) + '">Restore</button>',
               '<button data-snapshot-clone="' + esc(snapshot.selector) + '">Clone to...</button>',
-              '<button data-copy="' + esc(snapshot.restoreCommand) + '">Copy restore</button>',
-              '<button data-copy="' + esc(snapshot.cloneCommand) + '">Copy clone</button>',
               '</div>',
               '</div>'
             ].join("");
@@ -1252,19 +1372,10 @@ export const UI_HTML = String.raw`<!doctype html>
           '<div>Next</div><div><span class="wrap-text">' + esc(nextText) + '</span></div>',
           '</div>',
           '<div class="actions">',
-          '<button id="rebuild-preflight">Preflight Rebuild</button>',
           '<button class="primary" id="create-snapshot">Create Snapshot</button>',
-          '<button id="run-snapshot-list">Run snapshot list</button>',
-          '<button data-copy="' + esc(sandbox.commands.rebuild) + '">Copy rebuild</button>',
           '</div>',
-          renderCommandOutput(sandbox),
           '</div>',
-          '<div class="item-list">' + list + '</div>',
-          '<div class="actions">',
-          '<button data-copy="' + esc(sandbox.commands.snapshotList) + '">Copy snapshot list</button>',
-          '<button data-copy="' + esc("nemoclaw " + sandbox.name + " snapshot create --name before-change") + '">Copy create snapshot</button>',
-          '</div>',
-          renderCommands({ commands: { snapshotList: sandbox.commands.snapshotList, rebuild: sandbox.commands.rebuild } })
+          '<div class="item-list">' + list + '</div>'
         ].join("");
       }
 
@@ -1293,145 +1404,151 @@ export const UI_HTML = String.raw`<!doctype html>
 
       function loadLiveHealth(name) {
         if (liveHealthLoadingByName[name]) return;
+        var serial = selectionSerial;
         liveHealthAttemptedByName[name] = true;
         liveHealthLoadingByName[name] = true;
         renderDetail();
         authFetch("/api/sandboxes/" + encodeURIComponent(name) + "/live")
           .then(function (data) {
-            liveHealthByName[name] = data;
+            if (isCurrentSelection(name, serial)) liveHealthByName[name] = data;
           })
           .catch(function (err) {
-            commandOutputByName[name] = { title: "Live Health", result: { ok: false, status: null, stdout: "", stderr: err.message } };
+            if (isCurrentSelection(name, serial)) setConsoleError("Live Health", err);
           })
           .finally(function () {
             delete liveHealthLoadingByName[name];
-            renderDetail();
+            if (selectedName === name) renderDetail();
           });
       }
 
-      function runSandboxAction(sandbox, action, title) {
-        commandOutputByName[sandbox.name] = { title: title, pending: true };
-        renderDetail();
-        authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/actions/" + action, { method: "POST" })
-          .then(function (result) {
-            commandOutputByName[sandbox.name] = { title: title, result: result };
-            if (action === "doctor" || action === "rebuild-preflight") load().catch(function () {});
-          })
-          .catch(function (err) {
-            commandOutputByName[sandbox.name] = { title: title, result: { ok: false, status: null, stdout: "", stderr: err.message } };
-          })
-          .finally(function () { renderDetail(); });
+      function actionLabel(action) {
+        return action.split("-").map(function (part) {
+          return part ? part.charAt(0).toUpperCase() + part.slice(1) : part;
+        }).join(" ");
       }
 
-      function runGlobalAction(action, title) {
-        commandOutputByName.__global = { title: title, pending: true };
-        renderGlobalOutput();
-        authFetch("/api/actions/" + encodeURIComponent(action), { method: "POST" })
+      function runSandboxAction(sandbox, action, title) {
+        if (action === "upgrade" && !window.confirm("Run upgrade for " + sandbox.name + "? This will run preflight checks and rebuild if they pass.")) return;
+        var context = currentSelectionContext(sandbox);
+        setConsolePending(title);
+        authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/actions/" + action, { method: "POST" })
           .then(function (result) {
-            commandOutputByName.__global = { title: title, result: result };
+            setConsoleResultIfCurrent(context, title, result);
+            if (action === "doctor" || action === "rebuild-preflight" || action === "upgrade") load().catch(function () {});
           })
           .catch(function (err) {
-            commandOutputByName.__global = { title: title, result: { ok: false, status: null, stdout: "", stderr: err.message } };
+            setConsoleErrorIfCurrent(context, title, err);
           })
-          .finally(function () {
-            renderGlobalOutput();
-            load().catch(function () {});
+          .finally(function () { renderDetailIfCurrent(context); });
+      }
+
+      function openEndpoint(sandbox) {
+        var opened = window.open("about:blank", "_blank");
+        if (opened) opened.opener = null;
+        var context = currentSelectionContext(sandbox);
+        setConsolePending("Open Endpoint");
+        authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/endpoint")
+          .then(function (data) {
+            var nextUrl = data && data.url ? data.url : sandbox.dashboardUrl;
+            if (data && data.result) setConsoleResultIfCurrent(context, "Open Endpoint", data.result);
+            if (opened) {
+              opened.location.href = nextUrl;
+            } else {
+              window.location.href = nextUrl;
+            }
+          })
+          .catch(function (err) {
+            setConsoleErrorIfCurrent(context, "Open Endpoint", err);
+            if (opened) opened.location.href = sandbox.dashboardUrl;
           });
       }
 
       function repairForward(sandbox) {
-        commandOutputByName[sandbox.name] = { title: "Repair Forward", pending: true };
-        renderDetail();
+        var context = currentSelectionContext(sandbox);
+        setConsolePending("Repair Forward");
         authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/forward/repair", { method: "POST" })
           .then(function (data) {
-            liveHealthByName[sandbox.name] = data;
-            commandOutputByName[sandbox.name] = { title: "Repair Forward", result: data.result };
-            renderDetail();
+            if (isCurrentSelection(context.sandboxName, context.serial)) {
+              liveHealthByName[sandbox.name] = data;
+              setConsoleResult("Repair Forward", data.result);
+              renderDetail();
+            }
             load().catch(function () {});
           })
           .catch(function (err) {
-            commandOutputByName[sandbox.name] = { title: "Repair Forward", result: { ok: false, status: null, stdout: "", stderr: err.message } };
-            renderDetail();
+            setConsoleErrorIfCurrent(context, "Repair Forward", err);
+            renderDetailIfCurrent(context);
           });
       }
 
       function createSnapshot(sandbox) {
-        commandOutputByName[sandbox.name] = { title: "Create Snapshot", pending: true };
-        renderDetail();
+        var context = currentSelectionContext(sandbox);
+        setConsolePending("Create Snapshot");
         authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/actions/snapshot-create", { method: "POST" })
           .then(function (result) {
-            commandOutputByName[sandbox.name] = { title: "Create Snapshot", result: result };
-            renderDetail();
+            setConsoleResultIfCurrent(context, "Create Snapshot", result);
+            renderDetailIfCurrent(context);
             load().catch(function () {});
           })
           .catch(function (err) {
-            commandOutputByName[sandbox.name] = { title: "Create Snapshot", result: { ok: false, status: null, stdout: "", stderr: err.message } };
-            renderDetail();
+            setConsoleErrorIfCurrent(context, "Create Snapshot", err);
+            renderDetailIfCurrent(context);
           });
       }
 
       function runPolicyAction(sandbox, preset, action) {
         var title = "Policy " + action.replace("-", " ") + " " + preset;
-        if ((action === "add" || action === "remove") && !window.confirm("Run " + title + " for " + sandbox.name + "?")) return;
-        commandOutputByName[sandbox.name] = { title: title, pending: true };
-        renderDetail();
+        if (action === "add" && !window.confirm("Add policy preset '" + preset + "' to sandbox '" + sandbox.name + "'?")) return;
+        if (action === "remove" && !window.confirm("Remove policy preset '" + preset + "' from sandbox '" + sandbox.name + "'?")) return;
+        var context = currentSelectionContext(sandbox);
+        setConsolePending(title);
         authFetch(
           "/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/policies/" + encodeURIComponent(preset) + "/" + encodeURIComponent(action),
           { method: "POST" }
         )
           .then(function (result) {
-            commandOutputByName[sandbox.name] = { title: title, result: result };
+            setConsoleResultIfCurrent(context, title, result);
             load().catch(function () {});
           })
           .catch(function (err) {
-            commandOutputByName[sandbox.name] = { title: title, result: { ok: false, status: null, stdout: "", stderr: err.message } };
+            setConsoleErrorIfCurrent(context, title, err);
           })
-          .finally(function () { renderDetail(); });
-      }
-
-      function checkPolicyLive(sandbox) {
-        commandOutputByName[sandbox.name] = { title: "Policy List", pending: true };
-        renderDetail();
-        authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/policies/check", { method: "POST" })
-          .then(function (result) {
-            commandOutputByName[sandbox.name] = { title: "Policy List", result: result };
-          })
-          .catch(function (err) {
-            commandOutputByName[sandbox.name] = { title: "Policy List", result: { ok: false, status: null, stdout: "", stderr: err.message } };
-          })
-          .finally(function () { renderDetail(); });
+          .finally(function () { renderDetailIfCurrent(context); });
       }
 
       function restoreSnapshot(sandbox, selector, targetSandbox) {
         var cloneText = targetSandbox ? " into " + targetSandbox : "";
         if (!window.confirm("Restore snapshot " + selector + cloneText + "?")) return;
-        commandOutputByName[sandbox.name] = { title: "Restore Snapshot", pending: true };
-        renderDetail();
+        var context = currentSelectionContext(sandbox);
+        setConsolePending("Restore Snapshot");
         authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/snapshot/restore", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(targetSandbox ? { selector: selector, to: targetSandbox } : { selector: selector })
         })
           .then(function (result) {
-            commandOutputByName[sandbox.name] = { title: "Restore Snapshot", result: result };
+            setConsoleResultIfCurrent(context, "Restore Snapshot", result);
             load().catch(function () {});
           })
           .catch(function (err) {
-            commandOutputByName[sandbox.name] = { title: "Restore Snapshot", result: { ok: false, status: null, stdout: "", stderr: err.message } };
+            setConsoleErrorIfCurrent(context, "Restore Snapshot", err);
           })
-          .finally(function () { renderDetail(); });
+          .finally(function () { renderDetailIfCurrent(context); });
       }
 
       function runChannelCheck(sandbox, channelName) {
         var key = sandbox.name + ":" + channelName;
+        var context = currentSelectionContext(sandbox);
         channelCheckLoadingByName[key] = true;
+        setConsolePending("Channel Check: " + channelName);
         renderDetail();
         authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/channels/" + encodeURIComponent(channelName) + "/check", { method: "POST" })
           .then(function (result) {
             channelCheckByName[key] = result;
+            setConsoleResultIfCurrent(context, "Channel Check: " + channelName, checkCommandResult(result));
           })
           .catch(function (err) {
-            channelCheckByName[key] = {
+            var result = {
               sandbox: sandbox.name,
               channel: channelName,
               ok: false,
@@ -1441,20 +1558,24 @@ export const UI_HTML = String.raw`<!doctype html>
               checks: [{ label: "Check", status: "fail", detail: err.message }],
               command: { ok: false, status: null, stdout: "", stderr: err.message }
             };
+            channelCheckByName[key] = result;
+            setConsoleResultIfCurrent(context, "Channel Check: " + channelName, checkCommandResult(result));
           })
           .finally(function () {
             delete channelCheckLoadingByName[key];
-            renderDetail();
+            renderDetailIfCurrent(context);
           });
       }
 
       function runChannelTest(sandbox, channelName) {
         if (!window.confirm("Send a fixed NemoClaw test message via " + channelName + "?")) return;
         var key = sandbox.name + ":" + channelName;
+        var context = currentSelectionContext(sandbox);
         var tokenInput = document.querySelector('[data-channel-token="' + CSS.escape(channelName) + '"]');
         var token = tokenInput && tokenInput.value ? tokenInput.value : "";
         if (tokenInput) tokenInput.value = "";
         channelTestLoadingByName[key] = true;
+        setConsolePending("Test Message: " + channelName);
         renderDetail();
         authFetch("/api/sandboxes/" + encodeURIComponent(sandbox.name) + "/channels/" + encodeURIComponent(channelName) + "/test-message", {
           method: "POST",
@@ -1463,9 +1584,10 @@ export const UI_HTML = String.raw`<!doctype html>
         })
           .then(function (result) {
             channelTestByName[key] = result;
+            setConsoleResultIfCurrent(context, "Test Message: " + channelName, testCommandResult(result));
           })
           .catch(function (err) {
-            channelTestByName[key] = {
+            var result = {
               sandbox: sandbox.name,
               channel: channelName,
               ok: false,
@@ -1476,40 +1598,46 @@ export const UI_HTML = String.raw`<!doctype html>
               providerStatus: null,
               error: err.message
             };
+            channelTestByName[key] = result;
+            setConsoleResultIfCurrent(context, "Test Message: " + channelName, testCommandResult(result));
           })
           .finally(function () {
             delete channelTestLoadingByName[key];
-            renderDetail();
+            renderDetailIfCurrent(context);
           });
       }
 
       function bindDetailActions(sandbox) {
-        Array.prototype.forEach.call(document.querySelectorAll("[data-copy]"), function (button) {
-          button.addEventListener("click", function () {
-            navigator.clipboard.writeText(button.getAttribute("data-copy") || "");
+        var root = $("detail");
+        if (!root) return;
+        var clearConsole = $("clear-console");
+        if (clearConsole) {
+          clearConsole.addEventListener("click", function () {
+            consoleEntry = null;
+            renderConsole();
           });
-        });
-        Array.prototype.forEach.call(document.querySelectorAll("[data-channel-check]"), function (button) {
+        }
+        Array.prototype.forEach.call(root.querySelectorAll("[data-channel-check]"), function (button) {
           button.addEventListener("click", function () {
             runChannelCheck(sandbox, button.getAttribute("data-channel-check") || "");
           });
         });
-        Array.prototype.forEach.call(document.querySelectorAll("[data-channel-test]"), function (button) {
+        Array.prototype.forEach.call(root.querySelectorAll("[data-channel-test]"), function (button) {
           button.addEventListener("click", function () {
             runChannelTest(sandbox, button.getAttribute("data-channel-test") || "");
           });
         });
-        Array.prototype.forEach.call(document.querySelectorAll("[data-policy-action]"), function (button) {
+        Array.prototype.forEach.call(root.querySelectorAll("[data-policy-action]"), function (button) {
           button.addEventListener("click", function () {
             runPolicyAction(sandbox, button.getAttribute("data-policy-preset") || "", button.getAttribute("data-policy-action") || "");
           });
         });
-        Array.prototype.forEach.call(document.querySelectorAll("[data-snapshot-restore]"), function (button) {
+        Array.prototype.forEach.call(root.querySelectorAll("[data-snapshot-restore]"), function (button) {
           button.addEventListener("click", function () {
             restoreSnapshot(sandbox, button.getAttribute("data-snapshot-restore") || "", null);
           });
         });
-        Array.prototype.forEach.call(document.querySelectorAll("[data-snapshot-clone]"), function (button) {
+        Array.prototype.forEach.call(root.querySelectorAll("[data-snapshot-clone]"), function (button) {
           button.addEventListener("click", function () {
             var target = window.prompt("Clone snapshot to sandbox name");
             if (target) restoreSnapshot(sandbox, button.getAttribute("data-snapshot-clone") || "", target);
@@ -1517,24 +1645,25 @@ export const UI_HTML = String.raw`<!doctype html>
         });
         var checkLive = $("check-live");
         if (checkLive) checkLive.addEventListener("click", function () { loadLiveHealth(sandbox.name); });
-        var checkPolicy = $("check-policy-live");
-        if (checkPolicy) checkPolicy.addEventListener("click", function () { checkPolicyLive(sandbox); });
         var repair = $("repair-forward");
         if (repair) repair.addEventListener("click", function () { repairForward(sandbox); });
         var runStatus = $("run-status");
         if (runStatus) runStatus.addEventListener("click", function () { runSandboxAction(sandbox, "status", "Status"); });
         var runDoctor = $("run-doctor");
         if (runDoctor) runDoctor.addEventListener("click", function () { runSandboxAction(sandbox, "doctor", "Doctor"); });
-        Array.prototype.forEach.call(document.querySelectorAll("[data-sandbox-action]"), function (button) {
+        var channelSelect = $("channel-select");
+        if (channelSelect) {
+          channelSelect.addEventListener("change", function () {
+            selectedChannelBySandbox[sandbox.name] = channelSelect.value;
+            renderDetail();
+          });
+        }
+        Array.prototype.forEach.call(root.querySelectorAll("[data-sandbox-action]"), function (button) {
           button.addEventListener("click", function () {
             var action = button.getAttribute("data-sandbox-action") || "";
-            runSandboxAction(sandbox, action, action.replace("-", " "));
+            runSandboxAction(sandbox, action, actionLabel(action));
           });
         });
-        var rebuildPreflight = $("rebuild-preflight");
-        if (rebuildPreflight) rebuildPreflight.addEventListener("click", function () { runSandboxAction(sandbox, "rebuild-preflight", "Rebuild Preflight"); });
-        var snapshotList = $("run-snapshot-list");
-        if (snapshotList) snapshotList.addEventListener("click", function () { runSandboxAction(sandbox, "snapshot-list", "Snapshot List"); });
         var snapshotCreate = $("create-snapshot");
         if (snapshotCreate) snapshotCreate.addEventListener("click", function () { createSnapshot(sandbox); });
         var startLogs = $("start-logs");
@@ -1545,7 +1674,7 @@ export const UI_HTML = String.raw`<!doctype html>
         if (stopLogs) {
           stopLogs.addEventListener("click", function () { window.stopLogs(true); });
         }
-        Array.prototype.forEach.call(document.querySelectorAll("[data-log-filter]"), function (button) {
+        Array.prototype.forEach.call(root.querySelectorAll("[data-log-filter]"), function (button) {
           button.addEventListener("click", function () {
             var filterInput = $("log-filter");
             if (!filterInput) return;
@@ -1657,30 +1786,35 @@ export const UI_HTML = String.raw`<!doctype html>
         });
       }
 
-      function bindGlobalActions() {
-        Array.prototype.forEach.call(document.querySelectorAll("[data-global-action]"), function (button) {
-          button.addEventListener("click", function () {
-            var action = button.getAttribute("data-global-action") || "";
-            runGlobalAction(action, action.replace("-", " "));
-          });
-        });
-      }
-
       function renderAll() {
         renderSummary();
-        bindGlobalActions();
         renderSandboxTable();
         renderDetail();
         renderTabs();
       }
 
       function load() {
+        var loaded = false;
+        overviewLoading = true;
+        updateRefreshState();
+        if (!overview) {
+          $("sandboxes").innerHTML = renderLoadingState("Loading sandboxes...");
+          $("detail").className = "detail-body empty";
+          $("detail").innerHTML = renderLoadingState("Loading sandbox details...");
+        } else {
+          renderSummary();
+        }
         return authFetch("/api/overview").then(function (data) {
           overview = data;
+          loaded = true;
           if (!selectedName && overview.sandboxes.length) selectedName = overview.sandboxes[0].name;
-          renderAll();
         }).catch(function (err) {
           $("sandboxes").innerHTML = '<div class="empty">' + esc(err.message) + '</div>';
+        }).finally(function () {
+          overviewLoading = false;
+          updateRefreshState();
+          if (loaded) renderAll();
+          else renderSummary();
         });
       }
 

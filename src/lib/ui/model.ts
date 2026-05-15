@@ -68,6 +68,7 @@ export interface UiOverview {
 export interface UiCommandResult {
   ok: boolean;
   status: number | null;
+  commands?: string[];
   stdout: string;
   stderr: string;
 }

@@ -52,7 +52,7 @@ function inferGatewayHealth(
 ): string {
   if (!globalGatewayHealth) return "unknown";
   if (!isDefault) return "not default";
-  if (globalGatewayHealth.healthy) return "healthy";
+  if (globalGatewayHealth.healthy) return "connected (nemoclaw)";
   return globalGatewayHealth.reason
     ? `${globalGatewayHealth.state}: ${globalGatewayHealth.reason}`
     : globalGatewayHealth.state;
