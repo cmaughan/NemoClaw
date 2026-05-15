@@ -882,6 +882,24 @@ $ openshell term
 
 For a remote Brev instance, SSH to the instance and run `openshell term` there, or use a port-forward to the gateway.
 
+### `nemoclaw ui`
+
+Start the local NemoClaw control UI.
+The UI binds to `127.0.0.1`, generates a random session token, and opens a browser to the tokenized local URL.
+It provides a compact sandbox overview, health details, cached version readiness, a live dashboard/API forward probe, filtered log streaming, policy preset previews and mutations, channel status with safe checks and fixed test-message sends, snapshot create/restore guardrails, dashboard links, share status, and safe status, doctor, preflight, global check, and forward-repair actions.
+The UI does not run destructive rebuilds; it only copies the rebuild command after the operator reviews the guardrails.
+Snapshot restores and policy mutations require browser confirmation before the UI sends the fixed command.
+Live network approvals remain owned by the OpenShell TUI; run `openshell term` for approval prompts.
+
+```console
+$ nemoclaw ui [--port <port>] [--no-open]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--port <port>` | Bind a specific local UI port. Defaults to a random free port. |
+| `--no-open` | Print the URL without opening a browser. |
+
 ### `nemoclaw tunnel start`
 
 Start optional host auxiliary services. This is the cloudflared tunnel when `cloudflared` is installed (for a public URL to the dashboard). Channel messaging (Telegram, Discord, Slack) is not started here; it is configured during `nemoclaw onboard` and runs through OpenShell-managed constructs.
